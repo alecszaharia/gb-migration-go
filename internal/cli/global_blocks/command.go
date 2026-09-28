@@ -31,7 +31,7 @@ through the GraphQL API.`,
 		RunE: migrationRun,
 	}
 
-	migrationCmd.Flags().StringVarP(&database_url, "database_url", "d", "", "Database connection string")
+	migrationCmd.Flags().StringVarP(&database_url, "database_url", "d", "root:nopassword@tcp(localhost:3306)/brizy-cms", "Database connection string")
 	migrationCmd.Flags().IntVarP(&batch, "batch", "b", 100, "Batch count")
 	migrationCmd.Flags().BoolVarP(&failed, "failed", "f", false, "Iterate through failed blocks only")
 

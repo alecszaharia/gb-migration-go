@@ -3,7 +3,9 @@ package global_blocks
 import (
 	"BrizyGBMigration/internal/database"
 	"context"
+	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -79,12 +81,12 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	fmt.Println("Batch size: ", batch)
 	fmt.Println("Starting..")
 
-	err = iterateThroughBatches(ctx, repo, latestMigrated, batch, failed)
+	err = iterateThroughBatches(ctx, &migSt, repo, latestMigrated, batch, failed)
 
 	return nil
 }
 
-func iterateThroughBatches(ctx context.Context, repo *repository, latestMigrated int64, batch int, failedOnly bool) error {
+func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, latestMigrated int64, batch int, failedOnly bool) error {
 	var ids []int64
 	var err error
 
@@ -119,19 +121,37 @@ func iterateThroughBatches(ctx context.Context, repo *repository, latestMigrated
 		for _, gb := range globalBlocks {
 			wg.Go(func() {
 				id, err := migrateGlobalBlock(ctx, repo, gb)
-				migrated = append(migrated, id)
 				if err != nil {
 					failed = append(failed, id)
 				}
+
+				migrateGlobalBlockRules(ctx, repo, gb.projectId.Int64, gb.id.Int64, gb.rules.String)
+				migrated = append(migrated, id)
 			})
 		}
 
 		wg.Wait()
 
+		if len(migrated) > 0 {
+
+			fmt.Printf("Migrated %d global blocks\n", len(migrated))
+
+			latestMigrated = slices.Max(migrated)
+
+			err := migSt.updateState(ctx, latestMigrated)
+			if err != nil {
+				fmt.Println("Failed to update migration state")
+				return err
+			}
+		}
+
 		// exit the loop as we may end up in a infinite loop if there are broken block that cannot be migrated
 		if failedOnly {
 			return nil
 		}
+
+		fmt.Println("Continuing migration with the next batch")
+
 	}
 
 	return nil
@@ -139,7 +159,65 @@ func iterateThroughBatches(ctx context.Context, repo *repository, latestMigrated
 
 func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (int64, error) {
 
-	repo.insertGlobalBlock(ctx,gb.projectId,gb.)
+	cdId, err := repo.insertCompiledData(ctx, gb.projectId.Int64, gb.compileddataMetafieldValueId.Int64)
+	if err != nil {
+		fmt.Println("Failed to insert compiled data")
+		return 0, fmt.Errorf("failed to insert compiled data", err)
+	}
 
-	return 0, nil
+	pdId, err := repo.insertPageData(ctx, gb.projectId.Int64, gb.id.Int64)
+
+	if err != nil {
+		fmt.Println("Failed to insert page data")
+		return 0, fmt.Errorf("failed to insert page data", err)
+	}
+
+	gbId, err := repo.insertGlobalBlock(
+		ctx,
+		gb.projectId.Int64,
+		pdId,
+		cdId,
+		gb.dependencies.String,
+		gb.uid.String,
+		gb.authorId.Int64,
+		gb.title.String,
+		gb.status.String,
+		gb.meta.String,
+		gb.position.String,
+		gb.tags.String,
+		gb.createdAt.String,
+		gb.updatedAt.String,
+	)
+
+	if err != nil {
+		fmt.Println("Failed to insert global block")
+		return 0, fmt.Errorf("failed to insert global block", err)
+	}
+
+	return gbId, nil
+}
+
+func migrateGlobalBlockRules(ctx context.Context, repo *repository, projectId int64, bockId int64, rulesJson string) {
+	var data []rule
+
+	if err := json.Unmarshal([]byte(rulesJson), &data); err != nil {
+		panic(err)
+	}
+
+	rc := &ruleConverter{repo: repo}
+
+	for _, r := range data {
+		if rules, err := rc.convertOldRuleToSqlRule(&r); err != nil {
+			for i := range rules {
+				rules[i].global_block = bockId
+				rules[i].project_id = projectId
+				_, err := repo.insertRule(ctx, rules[i])
+				if err != nil {
+					fmt.Println("Failed to insert rule")
+					continue
+				}
+			}
+		}
+	}
+
 }

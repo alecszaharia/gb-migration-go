@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type nodeIdSet struct {
@@ -21,16 +22,18 @@ type nodeIdSet struct {
 }
 
 type repository struct {
-	db                    *sql.DB
-	nodeIdSet             *nodeIdSet
-	insertPageDataStm     *sql.Stmt
-	insertCompiledDataStm *sql.Stmt
-	insertGlobalBlockStm  *sql.Stmt
-	selectGlobalBlocksStm *sql.Stmt
+	db                        *sql.DB
+	nodeIdSet                 *nodeIdSet
+	insertPageDataStm         *sql.Stmt
+	insertCompiledDataStm     *sql.Stmt
+	insertGlobalBlockStm      *sql.Stmt
+	insertRuleStm             *sql.Stmt
+	selectGlobalBlocksStm     *sql.Stmt
+	fieldIdToCollectionTypeId map[int64]int64
 }
 
 type globalBlock struct {
-	id                           sql.NullString
+	id                           sql.NullInt64
 	projectId                    sql.NullInt64
 	parentId                     sql.NullInt64
 	authorId                     sql.NullInt64
@@ -41,7 +44,7 @@ type globalBlock struct {
 	position                     sql.NullString
 	rules                        sql.NullString
 	tags                         sql.NullString
-	compileddataMetafieldValueId sql.NullString
+	compileddataMetafieldValueId sql.NullInt64
 	dependencies                 sql.NullString
 	createdAt                    sql.NullString
 	updatedAt                    sql.NullString
@@ -54,7 +57,7 @@ func (s *repository) close() {
 	s.selectGlobalBlocksStm.Close()
 }
 
-func (s *repository) insertPageData(ctx context.Context, projectId int, dataId int) (int64, error) {
+func (s *repository) insertPageData(ctx context.Context, projectId int64, dataId int64) (int64, error) {
 	result, err := s.insertPageDataStm.ExecContext(ctx, projectId, dataId)
 	if err != nil {
 		return 0, err
@@ -68,7 +71,7 @@ func (s *repository) insertPageData(ctx context.Context, projectId int, dataId i
 	return id, nil
 }
 
-func (s *repository) insertCompiledData(ctx context.Context, projectId int, metaId int) (int64, error) {
+func (s *repository) insertCompiledData(ctx context.Context, projectId int64, metaId int64) (int64, error) {
 	result, err := s.insertCompiledDataStm.ExecContext(ctx, projectId, metaId)
 	if err != nil {
 		return 0, err
@@ -84,6 +87,22 @@ func (s *repository) insertCompiledData(ctx context.Context, projectId int, meta
 
 func (s *repository) insertGlobalBlock(ctx context.Context, projectId int64, page_data_id int64, compiled_data_id int64, dependencies string, uid string, author_id int64, title string, status string, meta string, position string, tags string, created_at string, updated_at string) (int64, error) {
 	result, err := s.insertGlobalBlockStm.ExecContext(ctx, projectId, page_data_id, compiled_data_id, dependencies, uid, author_id, title, status, meta, position, tags, created_at, updated_at)
+	if err != nil {
+		return 0, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	return id, nil
+}
+func (s *repository) insertRule(ctx context.Context, r newRule) (int64, error) {
+	result, err := s.insertRuleStm.ExecContext(ctx, r.global_block, r.project_id, r.collection_item, r.collection_type,
+		r.customer, r.customer_group, r.mode, r.RuleType,
+		r.collection_type_slug, r.external_type, r.external_id,
+		r.collection_type_field, r.field_value_item, time.Now(), time.Now())
 	if err != nil {
 		return 0, err
 	}
@@ -280,6 +299,29 @@ func (s *repository) getFailedGlobalBlocksIds(ctx context.Context) ([]int64, err
 
 	return result, nil
 }
+func (s *repository) getCollectionTypeFromFieldTypeId(fieldTypeId int64) (int64, error) {
+	if s.fieldIdToCollectionTypeId == nil {
+		s.fieldIdToCollectionTypeId = make(map[int64]int64)
+	}
+	if _, ok := s.fieldIdToCollectionTypeId[fieldTypeId]; ok {
+		return s.fieldIdToCollectionTypeId[fieldTypeId], nil
+	}
+
+	stmtOut, err := s.db.Prepare(`SELECT collection_type_id FROM collection_type_field WHERE id = ?`)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to to prepare statement: %s", err)
+	}
+
+	defer stmtOut.Close()
+	var collectionTypeId int64
+	row := stmtOut.QueryRow(fieldTypeId)
+	if err := row.Scan(&collectionTypeId); err != nil {
+		return 0, fmt.Errorf("failed to get row: %s", err)
+	}
+
+	return collectionTypeId, nil
+}
 
 func getNodeIds(ctx context.Context, db *sql.DB, entity string) (*nodeIdSet, error) {
 
@@ -358,13 +400,21 @@ func newPrepareRepository(ctx context.Context, db *sql.DB) (*repository, error) 
 		return nil, err
 	}
 
+	insertRuleStm, err := db.PrepareContext(ctx, `INSERT INTO rules 	
+    		(global_block, project_id, collection_item, collection_type, customer, 
+    		 customer_group, mode, type, collection_type_slug, external_type, 
+    		 external_id, collection_type_field, field_value_item, 
+    		 created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		return nil, err
+	}
+
 	selectGlobalBlocks, err := db.PrepareContext(ctx,
 		fmt.Sprintf(`SELECT
               d.id AS global_block_id,
               d.parent_id AS project_id,
               d.author_id,
               d.uid,
-              d.com
               IF(d.title <> '', d.title, 'Unnamed global block') AS title,
               IF(d.status = 'draft', 'draft', 'published') AS status,
               (SELECT value FROM metafield__text WHERE entity_id=d.id AND metafield_id=%d) AS meta,
@@ -387,6 +437,7 @@ func newPrepareRepository(ctx context.Context, db *sql.DB) (*repository, error) 
 		insertPageDataStm:     insertPageData,
 		insertCompiledDataStm: insertCompiledData,
 		insertGlobalBlockStm:  insertGlobalBlock,
+		insertRuleStm:         insertRuleStm,
 		selectGlobalBlocksStm: selectGlobalBlocks,
 	}, nil
 }

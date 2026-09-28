@@ -28,7 +28,7 @@ func (s *state) getState(ctx context.Context) (int64, error) {
 }
 
 func (s *state) updateState(ctx context.Context, id int64) error {
-	_, err := s.insertMigrationStateStm.ExecContext(ctx, id, "latest_processed_block_id", id, id)
+	_, err := s.insertMigrationStateStm.ExecContext(ctx, "latest_processed_block_id", id, id)
 	if err != nil {
 		return fmt.Errorf("failed to update the migration state: %s", err)
 	}
