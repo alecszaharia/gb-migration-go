@@ -14,6 +14,15 @@ type state struct {
 	getFailedIdsStm         *sql.Stmt
 }
 
+// withTx returns a copy of the state whose write statements run inside tx.
+func (s *state) withTx(ctx context.Context, tx *sql.Tx) *state {
+	c := *s
+	c.insertMigrationStateStm = tx.StmtContext(ctx, s.insertMigrationStateStm)
+	c.insertFailedIdsStm = tx.StmtContext(ctx, s.insertFailedIdsStm)
+	c.removeFailedIdsStm = tx.StmtContext(ctx, s.removeFailedIdsStm)
+	return &c
+}
+
 func (s *state) getState(ctx context.Context) (int64, error) {
 	var stateId int64
 	row := s.getFailedIdsStm.QueryRowContext(ctx)

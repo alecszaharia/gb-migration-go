@@ -57,6 +57,16 @@ func (s *repository) close() {
 	s.selectGlobalBlocksStm.Close()
 }
 
+// withTx returns a copy of the repository whose insert statements run inside tx.
+func (s *repository) withTx(ctx context.Context, tx *sql.Tx) *repository {
+	c := *s
+	c.insertPageDataStm = tx.StmtContext(ctx, s.insertPageDataStm)
+	c.insertCompiledDataStm = tx.StmtContext(ctx, s.insertCompiledDataStm)
+	c.insertGlobalBlockStm = tx.StmtContext(ctx, s.insertGlobalBlockStm)
+	c.insertRuleStm = tx.StmtContext(ctx, s.insertRuleStm)
+	return &c
+}
+
 func (s *repository) insertPageData(ctx context.Context, projectId int64, dataId int64) (int64, error) {
 	result, err := s.insertPageDataStm.ExecContext(ctx, projectId, dataId)
 	if err != nil {

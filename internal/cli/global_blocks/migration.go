@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -91,20 +90,13 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 	for {
 		if failedOnly {
 			ids, err = repo.getFailedGlobalBlocksIds(ctx)
-			if err != nil {
-				return err
-			}
-			err := migSt.removeFailedIds(ctx)
-			if err != nil {
-				return err
-			}
 		} else {
 			ids, err = repo.getGlobalBlocksIds(ctx, latestMigrated, batch)
 		}
 
 		if err != nil {
 			fmt.Println("Failed to get global block ids")
-			return fmt.Errorf("failed to get global block ids", err)
+			return fmt.Errorf("failed to get global block ids: %w", err)
 		}
 
 		if len(ids) == 0 {
@@ -116,55 +108,12 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 
 		if err != nil {
 			fmt.Println("Failed to get global block data")
-			return fmt.Errorf("failed to get global block data", err)
+			return fmt.Errorf("failed to get global block data: %w", err)
 		}
 
-		var wg sync.WaitGroup
-		var migrated = make([]int64, 0, batch)
-		var failed = make(map[int64]string)
-		var mu sync.Mutex
-
-		for _, gb := range globalBlocks {
-			wg.Go(func() {
-				nid, err := migrateGlobalBlock(ctx, repo, gb)
-
-				mu.Lock()
-				migrated = append(migrated, gb.id.Int64)
-				mu.Unlock()
-
-				if err != nil {
-					mu.Lock()
-					failed[gb.id.Int64] = err.Error()
-					mu.Unlock()
-					return
-				}
-
-				err = migrateGlobalBlockRules(ctx, repo, gb.projectId.Int64, nid, gb.rules.String)
-
-				if err != nil {
-					mu.Lock()
-					failed[gb.id.Int64] = err.Error()
-					mu.Unlock()
-					return
-				}
-
-			})
-		}
-
-		wg.Wait()
-
-		err = migSt.addFailedIds(ctx, failed)
-		if err != nil {
+		if err := migrateBatch(ctx, migSt, repo, ids, globalBlocks, failedOnly); err != nil {
+			fmt.Println("Failed to migrate batch")
 			return err
-		}
-
-		if !failedOnly && len(migrated) > 0 {
-			latestMigrated = slices.Max(migrated)
-			err := migSt.updateState(ctx, latestMigrated)
-			if err != nil {
-				fmt.Println("Failed to update migration state")
-				return err
-			}
 		}
 
 		// exit the loop as we may end up in a infinite loop if there are broken block that cannot be migrated
@@ -172,10 +121,73 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 			return nil
 		}
 
+		latestMigrated = slices.Max(ids)
 		fmt.Println("Continuing migration with the next batch")
+	}
+}
+
+func migrateBatch(ctx context.Context, migSt *state, repo *repository, ids []int64, globalBlocks []globalBlock, failedOnly bool) error {
+	tx, err := repo.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin batch transaction: %w", err)
+	}
+	//defer tx.Rollback()
+
+	txRepo := repo.withTx(ctx, tx)
+	txSt := migSt.withTx(ctx, tx)
+
+	// failed ids are re-inserted below for blocks that still fail
+	if failedOnly {
+		if err := txSt.removeFailedIds(ctx); err != nil {
+			return err
+		}
+	}
+
+	failedBlocks := make(map[int64]string)
+
+	for _, gb := range globalBlocks {
+		if _, err := tx.ExecContext(ctx, "SAVEPOINT global_block"); err != nil {
+			return fmt.Errorf("failed to create savepoint for global block %d: %w", gb.id.Int64, err)
+		}
+
+		if err := migrateGlobalBlockWithRules(ctx, txRepo, gb); err != nil {
+			failedBlocks[gb.id.Int64] = err.Error()
+			if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT global_block"); err != nil {
+				return fmt.Errorf("failed to roll back global block %d: %w", gb.id.Int64, err)
+			}
+			continue
+		}
+
+		if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT global_block"); err != nil {
+			return fmt.Errorf("failed to release savepoint for global block %d: %w", gb.id.Int64, err)
+		}
+	}
+
+	if err := txSt.addFailedIds(ctx, failedBlocks); err != nil {
+		return err
+	}
+
+	if !failedOnly {
+		if err := txSt.updateState(ctx, slices.Max(ids)); err != nil {
+			fmt.Println("Failed to update migration state")
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit batch transaction: %w", err)
 	}
 
 	return nil
+}
+
+func migrateGlobalBlockWithRules(ctx context.Context, repo *repository, gb globalBlock) error {
+	nid, err := migrateGlobalBlock(ctx, repo, gb)
+	if err != nil {
+		return err
+	}
+
+	return migrateGlobalBlockRules(ctx, repo, gb.projectId.Int64, nid, gb.rules.String)
 }
 
 func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (int64, error) {
