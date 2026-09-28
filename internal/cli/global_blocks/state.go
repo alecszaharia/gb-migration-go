@@ -46,12 +46,10 @@ func (s *state) addFailedIds(ctx context.Context, ids map[int64]string) error {
 
 	return nil
 }
-func (s *state) removeFailedIds(ctx context.Context, ids map[int64]string) error {
-	for id, _ := range ids {
-		_, err := s.removeFailedIdsStm.ExecContext(ctx, id)
-		if err != nil {
-			return fmt.Errorf("failed to remove failed itd: %s", err)
-		}
+func (s *state) removeFailedIds(ctx context.Context) error {
+	_, err := s.removeFailedIdsStm.ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to remove failed ids", err)
 	}
 
 	return nil
@@ -94,7 +92,7 @@ func (s *state) init(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to to prepare statement: %s", err)
 	}
-	s.removeFailedIdsStm, err = db.PrepareContext(ctx, `DELETE FROM global_block_migration_failed WHERE data_id = ?`)
+	s.removeFailedIdsStm, err = db.PrepareContext(ctx, `DELETE FROM global_block_migration_failed WHERE 1`)
 	if err != nil {
 		return fmt.Errorf("failed to to prepare statement: %s", err)
 	}

@@ -120,11 +120,23 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 			aR.RuleType = RULE_TYPE_REFERENCE
 
 			if values[0] != "" {
-				aR.collection_type_field, _ = rc.getIdFomIri(values[0])
-				aR.collection_type, _ = rc.repo.getCollectionTypeFromFieldTypeId(aR.collection_type_field)
+				fieldId, err := rc.getIdFomIri(values[0])
+				if err != nil {
+					return nil, err
+				}
+				aR.collection_type_field = fieldId
+				collectionTypeId, err := rc.repo.getCollectionTypeFromFieldTypeId(fieldId)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get collection type for field %d: %w", fieldId, err)
+				}
+				aR.collection_type = collectionTypeId
 			}
 			if len(values) > 1 && values[1] != "" {
-				aR.field_value_item, _ = rc.getIdFomIri(values[1])
+				id, err := rc.getIdFomIri(values[1])
+				if err != nil {
+					return nil, err
+				}
+				aR.field_value_item = id
 			}
 
 			results = append(results, aR)
@@ -138,10 +150,18 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 			aR := nr
 			values := strings.Split(ev, ":")
 			aR.RuleType = RULE_TYPE_REFERENCE
-			aR.collection_type, _ = rc.getIdFomIri(r.EntityType)
+			id, err := rc.getIdFomIri(r.EntityType)
+			if err != nil {
+				return nil, err
+			}
+			aR.collection_type = id
 
 			if len(values) > 1 && values[1] != "" {
-				aR.collection_item, _ = rc.getIdFomIri(values[1])
+				id, err := rc.getIdFomIri(values[1])
+				if err != nil {
+					return nil, err
+				}
+				aR.collection_item = id
 			}
 
 			results = append(results, aR)
@@ -161,7 +181,11 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 	if hasEntityType && !entityTypeCustomer && !hasEntityValues && !hasMode {
 		aR := nr
 		aR.RuleType = RULE_TYPE_REFERENCE
-		aR.collection_type, _ = rc.getIdFomIri(r.EntityType)
+		id, err := rc.getIdFomIri(r.EntityType)
+		if err != nil {
+			return nil, err
+		}
+		aR.collection_type = id
 		results = append(results, aR)
 		return results, nil
 	}
@@ -176,7 +200,11 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 			aR := nr
 			aR.RuleType = RULE_TYPE_REFERENCE
 			aR.collection_type_slug = "customer_group"
-			aR.customer_group, _ = rc.getIdFomIri(ev)
+			id, err := rc.getIdFomIri(ev)
+			if err != nil {
+				return nil, err
+			}
+			aR.customer_group = id
 			results = append(results, aR)
 		}
 		return results, nil
@@ -187,9 +215,17 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 			aR := nr
 			aR.RuleType = RULE_TYPE_SPECIFIC
 			if r.EntityType != "" {
-				aR.collection_type, _ = rc.getIdFomIri(r.EntityType)
+				id, err := rc.getIdFomIri(r.EntityType)
+				if err != nil {
+					return nil, err
+				}
+				aR.collection_type = id
 			}
-			aR.collection_item, _ = rc.getIdFomIri(ev)
+			id, err := rc.getIdFomIri(ev)
+			if err != nil {
+				return nil, err
+			}
+			aR.collection_item = id
 			results = append(results, aR)
 		}
 		return results, nil
@@ -200,7 +236,11 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 			aR := nr
 			aR.RuleType = RULE_TYPE_SPECIFIC
 			aR.collection_type_slug = "customer"
-			aR.customer, _ = rc.getIdFomIri(ev)
+			id, err := rc.getIdFomIri(ev)
+			if err != nil {
+				return nil, err
+			}
+			aR.customer = id
 			results = append(results, aR)
 		}
 		return results, nil
@@ -229,6 +269,10 @@ func (rc *ruleConverter) getIdFomIri(iri string) (int64, error) {
 
 	matches := re.FindStringSubmatch(iri)
 
+	if len(matches) != 3 {
+		return 0, fmt.Errorf("invalid iri %q", iri)
+	}
+
 	switch table_name := matches[1]; table_name {
 	case "collection_items":
 	case "collection_types":
@@ -236,10 +280,13 @@ func (rc *ruleConverter) getIdFomIri(iri string) (int64, error) {
 	case "customer_groups":
 	case "collection_type_fields":
 	default:
-		return 0, fmt.Errorf("invalid iri")
+		return 0, fmt.Errorf("invalid iri %q: unknown table %q", iri, matches[1])
 	}
 
-	t, _ := strconv.Atoi(matches[2])
-	rc.iriToId[iri] = int64(t)
+	t, err := strconv.ParseInt(matches[2], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid iri %q: %w", iri, err)
+	}
+	rc.iriToId[iri] = t
 	return rc.iriToId[iri], nil
 }

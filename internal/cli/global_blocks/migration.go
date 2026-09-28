@@ -81,9 +81,7 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	fmt.Println("Batch size: ", batch)
 	fmt.Println("Starting..")
 
-	err = iterateThroughBatches(ctx, &migSt, repo, latestMigrated, batch, failed)
-
-	return nil
+	return iterateThroughBatches(ctx, &migSt, repo, latestMigrated, batch, failed)
 }
 
 func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, latestMigrated int64, batch int, failedOnly bool) error {
@@ -93,6 +91,13 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 	for {
 		if failedOnly {
 			ids, err = repo.getFailedGlobalBlocksIds(ctx)
+			if err != nil {
+				return err
+			}
+			err := migSt.removeFailedIds(ctx)
+			if err != nil {
+				return err
+			}
 		} else {
 			ids, err = repo.getGlobalBlocksIds(ctx, latestMigrated, batch)
 		}
@@ -116,28 +121,45 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 
 		var wg sync.WaitGroup
 		var migrated = make([]int64, 0, batch)
-		var failed = make([]int64, 0, batch)
+		var failed = make(map[int64]string)
+		var mu sync.Mutex
 
 		for _, gb := range globalBlocks {
 			wg.Go(func() {
-				id, err := migrateGlobalBlock(ctx, repo, gb)
+				nid, err := migrateGlobalBlock(ctx, repo, gb)
+
+				mu.Lock()
+				migrated = append(migrated, gb.id.Int64)
+				mu.Unlock()
+
 				if err != nil {
-					failed = append(failed, id)
+					mu.Lock()
+					failed[gb.id.Int64] = err.Error()
+					mu.Unlock()
+					return
 				}
 
-				migrateGlobalBlockRules(ctx, repo, gb.projectId.Int64, gb.id.Int64, gb.rules.String)
-				migrated = append(migrated, id)
+				err = migrateGlobalBlockRules(ctx, repo, gb.projectId.Int64, nid, gb.rules.String)
+
+				if err != nil {
+					mu.Lock()
+					failed[gb.id.Int64] = err.Error()
+					mu.Unlock()
+					return
+				}
+
 			})
 		}
 
 		wg.Wait()
 
-		if len(migrated) > 0 {
+		err = migSt.addFailedIds(ctx, failed)
+		if err != nil {
+			return err
+		}
 
-			fmt.Printf("Migrated %d global blocks\n", len(migrated))
-
+		if !failedOnly && len(migrated) > 0 {
 			latestMigrated = slices.Max(migrated)
-
 			err := migSt.updateState(ctx, latestMigrated)
 			if err != nil {
 				fmt.Println("Failed to update migration state")
@@ -151,7 +173,6 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 		}
 
 		fmt.Println("Continuing migration with the next batch")
-
 	}
 
 	return nil
@@ -197,27 +218,28 @@ func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (
 	return gbId, nil
 }
 
-func migrateGlobalBlockRules(ctx context.Context, repo *repository, projectId int64, bockId int64, rulesJson string) {
+func migrateGlobalBlockRules(ctx context.Context, repo *repository, projectId int64, bockId int64, rulesJson string) error {
 	var data []rule
 
 	if err := json.Unmarshal([]byte(rulesJson), &data); err != nil {
-		panic(err)
+		return fmt.Errorf("failed to unmarshal the rules json")
 	}
 
 	rc := &ruleConverter{repo: repo}
 
 	for _, r := range data {
-		if rules, err := rc.convertOldRuleToSqlRule(&r); err != nil {
-			for i := range rules {
-				rules[i].global_block = bockId
-				rules[i].project_id = projectId
-				_, err := repo.insertRule(ctx, rules[i])
-				if err != nil {
-					fmt.Println("Failed to insert rule")
-					continue
-				}
+		rules, err := rc.convertOldRuleToSqlRule(&r)
+		if err != nil {
+			return fmt.Errorf("failed to convert old rule to new rule: %w", err)
+		}
+		for i := range rules {
+			rules[i].global_block = bockId
+			rules[i].project_id = projectId
+			_, err := repo.insertRule(ctx, rules[i])
+			if err != nil {
+				return fmt.Errorf("failed to insert rule")
 			}
 		}
 	}
-
+	return nil
 }

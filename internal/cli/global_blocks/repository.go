@@ -98,6 +98,7 @@ func (s *repository) insertGlobalBlock(ctx context.Context, projectId int64, pag
 
 	return id, nil
 }
+
 func (s *repository) insertRule(ctx context.Context, r newRule) (int64, error) {
 	result, err := s.insertRuleStm.ExecContext(ctx, r.global_block, r.project_id, r.collection_item, r.collection_type,
 		r.customer, r.customer_group, r.mode, r.RuleType,
@@ -259,6 +260,7 @@ func (s *repository) getGlobalBlocksIds(ctx context.Context, latestId int64, bat
                 FROM metafield__int mi
                 STRAIGHT_JOIN data d ON d.parent_id = mi.entity_id
                 WHERE mi.metafield_id = ? AND mi.value = 2 and d.node_id=? and d.id > ?
+                ORDER BY d.id ASC
                 LIMIT ?`, s.nodeIdSet.metafieldApiVersionId, s.nodeIdSet.globalBlockNodeId, latestId, batch)
 	if err != nil {
 		return nil, fmt.Errorf("Faild to query the global blocks")
@@ -432,12 +434,13 @@ func newPrepareRepository(ctx context.Context, db *sql.DB) (*repository, error) 
 	}
 
 	return &repository{
-		db:                    db,
-		nodeIdSet:             nodeIdSet,
-		insertPageDataStm:     insertPageData,
-		insertCompiledDataStm: insertCompiledData,
-		insertGlobalBlockStm:  insertGlobalBlock,
-		insertRuleStm:         insertRuleStm,
-		selectGlobalBlocksStm: selectGlobalBlocks,
+		db:                        db,
+		nodeIdSet:                 nodeIdSet,
+		insertPageDataStm:         insertPageData,
+		insertCompiledDataStm:     insertCompiledData,
+		insertGlobalBlockStm:      insertGlobalBlock,
+		insertRuleStm:             insertRuleStm,
+		selectGlobalBlocksStm:     selectGlobalBlocks,
+		fieldIdToCollectionTypeId: make(map[int64]int64),
 	}, nil
 }
