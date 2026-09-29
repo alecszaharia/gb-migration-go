@@ -44,3 +44,4 @@ Process-global state (viper, captureStdout, setTestHook): DB/command tests must 
 
 ## Orchestrator (T-017, orchestrator.go)
 - `runRanges(ctx, migSt, repo, ranges []storedRange, batch int, p *progress) error`; `rangeError(r, err)` → `range %d [%d, %s]: %w` (`+inf` upper for last). On worker error migrationRun prints `Error: <err>` to stdout.
+- Split test helpers (T-015/16, don't redeclare): newSplitEnv, runEnsureSplit, clearState, assertNoMigratedData, storedSplitFromState, assertSplitShape, seedMixed, rawStateAndCounts, splitNotice, splitBoundRows, assertNotice, newTestState, splitKeys.

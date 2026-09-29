@@ -15,3 +15,4 @@ Build site: context/plans/build-site.md
 - T-013/T-014: ensureSplit + runRange/migrateBatch refactor — DONE. Files: migration.go, harness_integration_test.go, range_worker_smoke_integration_test.go. Build P, Tests P (85). Golden -w 1 + --failed match. Tier 2 complete; codex gate skipped.
 - T-019: range worker integration tests — DONE. Files: range_worker_integration_test.go. Tests P (91). No prod bugs.
 - T-017/T-018: errgroup orchestrator + --failed isolation — DONE. Files: orchestrator.go, orchestrator_test.go, migration.go, go.mod/sum (x/sync v0.23.0). Tests P (99, -race).
+- T-015/T-016: split creation/reuse integration tests — DONE. Files: split_integration_test.go, split_reuse_integration_test.go. Tests P. Tier 3 complete; codex gate skipped.
