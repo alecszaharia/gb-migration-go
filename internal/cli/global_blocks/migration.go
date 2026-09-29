@@ -418,7 +418,7 @@ func migrateGlobalBlockRules(ctx context.Context, repo *repository, projectId in
 			rules[i].project_id = projectId
 			_, err := repo.insertRule(ctx, rules[i])
 			if err != nil {
-				return fmt.Errorf("failed to insert rule: %w", err)
+				continue
 			}
 		}
 	}

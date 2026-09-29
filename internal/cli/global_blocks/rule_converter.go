@@ -10,7 +10,7 @@ import (
 
 type rule struct {
 	RuleType     int `json:"type"`
-	AppliedFor   int
+	AppliedFor   *int
 	EntityType   string
 	EntityValues []string
 	Mode         string
