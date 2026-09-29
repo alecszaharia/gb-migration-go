@@ -10,3 +10,5 @@ Build site: context/plans/build-site.md
 - Next: T-005 (running), T-007+T-008 (running), then T-009..T-012.
 - T-007: split unit tests — DONE. T-008: pool K+1 — DONE. Files: split_test.go, mysql.go, mysql_test.go, migration.go. Build P, Tests P (35).
 - T-005: integration harness — DONE. Files: hooks.go, harness_test.go, harness_snapshot_test.go, harness_run_test.go, harness_unit_test.go, harness_integration_test.go. Build P, Tests P (44, DSN set, -race). API: context/impl/harness-api.md. Tier 0 complete.
+- T-011: golden baseline (synthetic fixture) — DONE. T-012: rejected -w writes nothing — DONE. Files: scripts/capture_baseline.sh, golden_helpers_test.go, golden_capture_integration_test.go, testdata/golden/*.json, command_integration_test.go. Build P, Tests P (50 w/ DSN).
+- T-009: split/watermark persistence — DONE. T-010: upgrade integration tests — DONE. Files: state.go, state_test.go, state_integration_test.go. Build P, Tests P (81, -race, DSN). Tier 1 complete. Codex unavailable → tier gate skipped.

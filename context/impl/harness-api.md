@@ -24,3 +24,13 @@ Process-global state (viper, captureStdout, setTestHook): DB/command tests must 
 ## Run / stdout
 - `captureStdout(t, fn) string`; `runCommand(ctx, args...) error` (viper.Reset + NewCommand + ExecuteContext); `runCommandCapture(t, ctx, args...)`; `fx.run(ctx, args...) (stdout, err)` prepends `-d fx.DSN`.
 - Each command run opens its own pool (never closed); requireDB cleanup kills its connections.
+
+## Golden (T-011, golden_helpers_test.go)
+- `seedGoldenFixture(fx)` — fixed synthetic fixture (51 ok, 9 failing = 3/failKind, 9 ineligible; sparse IDs, max 75000). Editing it invalidates goldens → rerun `GIT=/usr/bin/git GB_MIGRATION_TEST_DSN=... scripts/capture_baseline.sh` (builds 7c5eea1 in temp worktree).
+- `goldenBatch=7`; `goldenRunArgs()` → `-b 7`; `goldenFailedRunArgs()` → `-b 7 --failed`. New tool normal run: add `-w 1`.
+- `applyGoldenFailedFixes(fx)` — fixes blocks 100, 400, 999 before `--failed` run.
+- `captureGolden(t, db) goldenSnapshot{Migrated, Failed}` (normalised; state table excluded; schema name → `<schema>`), `loadGolden(t, goldenNormal|goldenFailed) goldenData`, `assertGoldenEqual(t, name, want, got)`.
+- Normal: fresh fixture → seed → run goldenRunArgs → 51 migrated, 9 failed. Failed: fresh → seed → normal run → applyGoldenFailedFixes → run goldenFailedRunArgs → 54 migrated, 6 failed (`failed_before` stored).
+
+## State API (T-009, state.go)
+- `storedRange{idRange; Watermark int64}`; `(s *state) loadSplit(ctx) (k, []storedRange, ok, err)`; `(s *state) storeSplit(ctx, db, []idRange) error` (one tx; hook step 0..splitStoreWrites(ranges)); `(s *state) updateRangeWatermark(ctx, idx, id)` (use on `withTx` copy). Test helper name `i64` already taken.
