@@ -87,8 +87,9 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, latestMigrated int64, batch int, failedOnly bool, count int64) error {
 	var ids []int64
 	var err error
+	var processed int64
 	i := 1
-
+	fmt.Println() // reserve the progress line; each batch rewrites it in place
 	for {
 		if failedOnly {
 			ids, err = repo.getFailedGlobalBlocksIds(ctx)
@@ -106,7 +107,6 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 			return nil
 		}
 
-		fmt.Println("Getting the global blocks in batch: ", i)
 		globalBlocks, err := repo.getGlobalBLocks(ctx, ids)
 
 		if err != nil {
@@ -118,8 +118,12 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 			fmt.Println("Failed to migrate batch")
 			return err
 		}
-		blocksPerSecond := float64(len(ids)) / float64(time.Since(start).Seconds())
-		fmt.Printf("Processed %.2f/s\n", blocksPerSecond)
+		processed += int64(len(ids))
+		blocksPerSecond := float64(len(ids)) / time.Since(start).Seconds()
+
+		fmt.Printf("\033[F\033[2KProgress: %.2f%% (%d/%d) | %.2f blocks/s\n",
+			float64(processed)/float64(count)*100, processed, count, blocksPerSecond)
+
 		// exit the loop as we may end up in a infinite loop if there are broken block that cannot be migrated
 		if failedOnly {
 			return nil
