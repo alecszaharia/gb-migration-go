@@ -41,3 +41,6 @@ Process-global state (viper, captureStdout, setTestHook): DB/command tests must 
 - `migrateBatch(ctx, migSt, repo, globalBlocks, beforeBlocks, commitProgress func(txSt *state) error) error`
 - `migrateFailed(ctx, migSt, repo) error` — --failed path; no state keys.
 - Build migSt/repo in tests: `repo, _ := newPrepareRepository(ctx, db)`; `migSt := state{}; migSt.init(ctx, db)`.
+
+## Orchestrator (T-017, orchestrator.go)
+- `runRanges(ctx, migSt, repo, ranges []storedRange, batch int, p *progress) error`; `rangeError(r, err)` → `range %d [%d, %s]: %w` (`+inf` upper for last). On worker error migrationRun prints `Error: <err>` to stdout.
