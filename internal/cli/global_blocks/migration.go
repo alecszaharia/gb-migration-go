@@ -5,10 +5,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -183,7 +185,7 @@ func runRange(ctx context.Context, migSt *state, repo *repository, r storedRange
 			}
 			return callHookBeforeBatchCommit(r.Index)
 		}
-		if err := migrateBatch(ctx, migSt, repo, globalBlocks, nil, commitProgress); err != nil {
+		if err := migrateBatchWithRetry(ctx, migSt, repo, globalBlocks, commitProgress); err != nil {
 			return err
 		}
 
@@ -254,8 +256,39 @@ func migrateFailed(ctx context.Context, migSt *state, repo *repository) error {
 // nil, runs in the transaction before any block is migrated; commitProgress,
 // when not nil, runs after the blocks and failed rows are written, right
 // before the commit. An error from either aborts and rolls back the batch.
+// maxBatchAttempts bounds how often a batch is retried after a lock conflict.
+const maxBatchAttempts = 5
+
+// migrateBatchWithRetry runs a range batch, retrying it from scratch when the transaction
+// lost a lock conflict (deadlock or lock wait timeout) with a concurrent range worker.
+// A failed attempt is fully rolled back, so a retry never double-applies a block.
+func migrateBatchWithRetry(ctx context.Context, migSt *state, repo *repository, globalBlocks []globalBlock, commitProgress func(txSt *state) error) error {
+	var err error
+	for attempt := 1; attempt <= maxBatchAttempts; attempt++ {
+		err = migrateBatch(ctx, migSt, repo, globalBlocks, nil, commitProgress)
+		if err == nil || !isLockConflict(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt*attempt) * 10 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("batch failed after %d attempts: %w", maxBatchAttempts, err)
+}
+
+// isLockConflict reports whether err is a MySQL deadlock (1213) or lock wait timeout (1205).
+func isLockConflict(err error) bool {
+	var myErr *mysql.MySQLError
+	return errors.As(err, &myErr) && (myErr.Number == 1213 || myErr.Number == 1205)
+}
+
 func migrateBatch(ctx context.Context, migSt *state, repo *repository, globalBlocks []globalBlock, beforeBlocks, commitProgress func(txSt *state) error) error {
-	tx, err := repo.db.BeginTx(ctx, nil)
+	// READ COMMITTED: under REPEATABLE READ a block rolled back to its savepoint leaves
+	// an inherited gap lock at the end of the target tables' indexes, which deadlocks
+	// concurrent range workers inserting at the same index end.
+	tx, err := repo.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return fmt.Errorf("failed to begin batch transaction: %w", err)
 	}
@@ -279,6 +312,11 @@ func migrateBatch(ctx context.Context, migSt *state, repo *repository, globalBlo
 		}
 
 		if err := migrateGlobalBlockWithRules(ctx, txRepo, gb); err != nil {
+			// a lock conflict is not the block's fault: a deadlock has already rolled back
+			// the whole transaction, so abort the batch and let the caller retry it
+			if isLockConflict(err) {
+				return fmt.Errorf("lock conflict migrating global block %d: %w", gb.id.Int64, err)
+			}
 			failedBlocks[gb.id.Int64] = err.Error()
 			if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT global_block"); err != nil {
 				return fmt.Errorf("failed to roll back global block %d: %w", gb.id.Int64, err)
