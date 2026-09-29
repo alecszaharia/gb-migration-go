@@ -8,7 +8,9 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-func NewDB(dsn string) (*sql.DB, error) {
+// NewDB opens a MySQL pool sized for the given number of concurrent workers
+// (see configurePool) and verifies connectivity with a ping.
+func NewDB(dsn string, workers int) (*sql.DB, error) {
 	cfg, err := mysql.ParseDSN(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse the dsn: %w", err)
@@ -26,9 +28,7 @@ func NewDB(dsn string) (*sql.DB, error) {
 
 	db := sql.OpenDB(connector)
 
-	db.SetConnMaxLifetime(time.Minute * 3)
-	db.SetMaxOpenConns(20)
-	db.SetMaxIdleConns(20)
+	configurePool(db, workers)
 	// OpenDB doesn't open a connection. Validate DSN data:
 	err = db.Ping()
 	if err != nil {
@@ -36,4 +36,13 @@ func NewDB(dsn string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// configurePool sizes the pool so K workers, each holding a transaction, plus
+// the coordinator's own queries never wait on a connection: max(workers+1, 20).
+func configurePool(db *sql.DB, workers int) {
+	n := max(workers+1, 20)
+	db.SetConnMaxLifetime(time.Minute * 3)
+	db.SetMaxOpenConns(n)
+	db.SetMaxIdleConns(n)
 }

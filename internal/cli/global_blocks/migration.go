@@ -25,7 +25,7 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	// db connection
 	fmt.Print("Getting node and metafield ids: ")
 
-	db, err := database.NewDB(viper.GetString("database_url"))
+	db, err := database.NewDB(viper.GetString("database_url"), viper.GetInt("workers"))
 	if err != nil {
 		fmt.Println("Failed to open the connection")
 		return fmt.Errorf("Failed to open the connection: %w", err)
