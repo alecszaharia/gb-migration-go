@@ -17,6 +17,7 @@ var (
 	database_url string
 	batch        int
 	failed       bool
+	workers      int
 )
 
 func migrationRun(cmd *cobra.Command, args []string) error {
