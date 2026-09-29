@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -80,12 +81,13 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	fmt.Println("Batch size: ", batch)
 	fmt.Println("Starting..")
 
-	return iterateThroughBatches(ctx, &migSt, repo, latestMigrated, batch, failed)
+	return iterateThroughBatches(ctx, &migSt, repo, latestMigrated, batch, failed, count)
 }
 
-func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, latestMigrated int64, batch int, failedOnly bool) error {
+func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, latestMigrated int64, batch int, failedOnly bool, count int64) error {
 	var ids []int64
 	var err error
+	i := 1
 
 	for {
 		if failedOnly {
@@ -104,24 +106,27 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 			return nil
 		}
 
+		fmt.Println("Getting the global blocks in batch: ", i)
 		globalBlocks, err := repo.getGlobalBLocks(ctx, ids)
 
 		if err != nil {
 			fmt.Println("Failed to get global block data")
 			return fmt.Errorf("failed to get global block data: %w", err)
 		}
-
+		start := time.Now()
 		if err := migrateBatch(ctx, migSt, repo, ids, globalBlocks, failedOnly); err != nil {
 			fmt.Println("Failed to migrate batch")
 			return err
 		}
-
+		blocksPerSecond := float64(len(ids)) / float64(time.Since(start).Seconds())
+		fmt.Printf("Processed %.2f/s\n", blocksPerSecond)
 		// exit the loop as we may end up in a infinite loop if there are broken block that cannot be migrated
 		if failedOnly {
 			return nil
 		}
 
 		latestMigrated = slices.Max(ids)
+		i = i + 1
 	}
 }
 
