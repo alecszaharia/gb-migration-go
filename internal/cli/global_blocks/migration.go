@@ -3,6 +3,7 @@ package global_blocks
 import (
 	"BrizyGBMigration/internal/database"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -61,6 +62,7 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 
 	var count int64
 
+	fmt.Println("Getting total counts..")
 	if viper.GetBool("failed") {
 		count, err = repo.getFailedTotalCount(ctx)
 	} else {
@@ -218,8 +220,9 @@ func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (
 		ctx,
 		gb.projectId.Int64,
 		pdId,
-		cdId,
-		gb.dependencies.String,
+		sql.NullInt64{Int64: cdId, Valid: cdId != 0},
+		// dependencies is a JSON column: empty string is invalid JSON, store NULL instead
+		sql.NullString{String: gb.dependencies.String, Valid: gb.dependencies.Valid && gb.dependencies.String != ""},
 		gb.uid.String,
 		gb.authorId.Int64,
 		gb.title.String,
@@ -232,7 +235,7 @@ func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (
 	)
 
 	if err != nil {
-		fmt.Println("Failed to insert global block")
+		fmt.Println("Failed to insert global block", err)
 		return 0, fmt.Errorf("failed to insert global block: %w", err)
 	}
 

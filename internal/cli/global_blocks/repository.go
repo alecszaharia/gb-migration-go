@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,8 @@ type repository struct {
 	insertRuleStm             *sql.Stmt
 	selectGlobalBlocksStm     *sql.Stmt
 	fieldIdToCollectionTypeId map[int64]int64
+	// pointer so copies made by withTx share the same lock as the shared map
+	fieldIdToCollectionTypeMu *sync.RWMutex
 }
 
 type globalBlock struct {
@@ -95,7 +98,7 @@ func (s *repository) insertCompiledData(ctx context.Context, projectId int64, me
 	return id, nil
 }
 
-func (s *repository) insertGlobalBlock(ctx context.Context, projectId int64, page_data_id int64, compiled_data_id int64, dependencies string, uid string, author_id int64, title string, status string, meta string, position string, tags string, created_at string, updated_at string) (int64, error) {
+func (s *repository) insertGlobalBlock(ctx context.Context, projectId int64, page_data_id int64, compiled_data_id sql.NullInt64, dependencies sql.NullString, uid string, author_id int64, title string, status string, meta string, position string, tags string, created_at string, updated_at string) (int64, error) {
 	result, err := s.insertGlobalBlockStm.ExecContext(ctx, projectId, page_data_id, compiled_data_id, dependencies, uid, author_id, title, status, meta, position, tags, created_at, updated_at)
 	if err != nil {
 		return 0, err
@@ -328,11 +331,11 @@ func (s *repository) getFailedGlobalBlocksIds(ctx context.Context) ([]int64, err
 	return result, nil
 }
 func (s *repository) getCollectionTypeFromFieldTypeId(fieldTypeId int64) (int64, error) {
-	if s.fieldIdToCollectionTypeId == nil {
-		s.fieldIdToCollectionTypeId = make(map[int64]int64)
-	}
-	if _, ok := s.fieldIdToCollectionTypeId[fieldTypeId]; ok {
-		return s.fieldIdToCollectionTypeId[fieldTypeId], nil
+	s.fieldIdToCollectionTypeMu.RLock()
+	cached, ok := s.fieldIdToCollectionTypeId[fieldTypeId]
+	s.fieldIdToCollectionTypeMu.RUnlock()
+	if ok {
+		return cached, nil
 	}
 
 	stmtOut, err := s.db.Prepare(`SELECT collection_type_id FROM collection_type_field WHERE id = ?`)
@@ -347,6 +350,10 @@ func (s *repository) getCollectionTypeFromFieldTypeId(fieldTypeId int64) (int64,
 	if err := row.Scan(&collectionTypeId); err != nil {
 		return 0, fmt.Errorf("failed to get row: %s", err)
 	}
+
+	s.fieldIdToCollectionTypeMu.Lock()
+	s.fieldIdToCollectionTypeId[fieldTypeId] = collectionTypeId
+	s.fieldIdToCollectionTypeMu.Unlock()
 
 	return collectionTypeId, nil
 }
@@ -468,5 +475,6 @@ func newPrepareRepository(ctx context.Context, db *sql.DB) (*repository, error) 
 		insertRuleStm:             insertRuleStm,
 		selectGlobalBlocksStm:     selectGlobalBlocks,
 		fieldIdToCollectionTypeId: make(map[int64]int64),
+		fieldIdToCollectionTypeMu: &sync.RWMutex{},
 	}, nil
 }
