@@ -20,6 +20,12 @@ var (
 	// testHookSplitStoreStep runs between the inserts of the single split
 	// store transaction; i counts the writes done so far.
 	testHookSplitStoreStep func(i int) error
+
+	// testHookBeforeBlock runs inside a batch transaction before each block's
+	// savepoint is created. dataID is the block about to be migrated and done
+	// counts the blocks of this batch already migrated or rolled back to their
+	// savepoint, so done == N means "mid-batch, after N savepoints".
+	testHookBeforeBlock func(dataID int64, done int) error
 )
 
 // callHookBatchStart runs testHookBatchStart when it is set.
@@ -42,6 +48,14 @@ func callHookBeforeBatchCommit(rangeIdx int) error {
 func callHookSplitStoreStep(i int) error {
 	if h := testHookSplitStoreStep; h != nil {
 		return h(i)
+	}
+	return nil
+}
+
+// callHookBeforeBlock runs testHookBeforeBlock when it is set.
+func callHookBeforeBlock(dataID int64, done int) error {
+	if h := testHookBeforeBlock; h != nil {
+		return h(dataID, done)
 	}
 	return nil
 }
