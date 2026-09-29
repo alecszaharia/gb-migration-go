@@ -273,7 +273,10 @@ func migrateBatch(ctx context.Context, migSt *state, repo *repository, globalBlo
 
 	failedBlocks := make(map[int64]string)
 
-	for _, gb := range globalBlocks {
+	for i, gb := range globalBlocks {
+		if err := callHookBeforeBlock(gb.id.Int64, i); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, "SAVEPOINT global_block"); err != nil {
 			return fmt.Errorf("failed to create savepoint for global block %d: %w", gb.id.Int64, err)
 		}
