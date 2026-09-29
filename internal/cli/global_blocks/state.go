@@ -58,7 +58,7 @@ func (s *state) addFailedIds(ctx context.Context, ids map[int64]string) error {
 func (s *state) removeFailedIds(ctx context.Context) error {
 	_, err := s.removeFailedIdsStm.ExecContext(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to remove failed ids", err)
+		return fmt.Errorf("failed to remove failed ids: %w", err)
 	}
 
 	return nil

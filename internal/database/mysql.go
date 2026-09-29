@@ -11,7 +11,7 @@ import (
 func NewDB(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect", err)
+		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 
 	db.SetConnMaxLifetime(time.Minute * 3)

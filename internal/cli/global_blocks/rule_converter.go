@@ -16,7 +16,7 @@ type rule struct {
 	Mode         string
 }
 
-func (r *rule) getMode() int {
+func (r *rule) getMode() string {
 	if r.RuleType == 1 {
 		return MODE_INCLUDE
 	}
@@ -26,7 +26,7 @@ func (r *rule) getMode() int {
 type newRule struct {
 	project_id            int64
 	global_block          int64
-	mode                  int64
+	mode                  string
 	RuleType              string `json:"type"`
 	collection_type       int64
 	collection_item       int64
@@ -39,8 +39,8 @@ type newRule struct {
 	field_value_item      int64
 }
 
-const MODE_INCLUDE = 1
-const MODE_EXCLUDE = 2
+const MODE_INCLUDE = "include"
+const MODE_EXCLUDE = "exclude"
 
 const RULE_TYPE_SPECIFIC = "specific"
 const RULE_TYPE_REFERENCE = "referenced"
@@ -53,7 +53,7 @@ type ruleConverter struct {
 
 func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 
-	nr := newRule{mode: int64(r.getMode())}
+	nr := newRule{mode: r.getMode()}
 	hasMode := r.Mode != ""
 	modeReference := hasMode && ("reference" == r.Mode)
 	modeSpecific := hasMode && ("specific" == r.Mode)

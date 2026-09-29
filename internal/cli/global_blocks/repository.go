@@ -109,11 +109,27 @@ func (s *repository) insertGlobalBlock(ctx context.Context, projectId int64, pag
 	return id, nil
 }
 
+// nullableId maps the zero value of an unset foreign key to NULL; 0 is never a valid id and violates the FK constraints.
+func nullableId(id int64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
+}
+
+// nullableString maps an unset string to NULL to match the nullable columns.
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 func (s *repository) insertRule(ctx context.Context, r newRule) (int64, error) {
-	result, err := s.insertRuleStm.ExecContext(ctx, r.global_block, r.project_id, r.collection_item, r.collection_type,
-		r.customer, r.customer_group, r.mode, r.RuleType,
-		r.collection_type_slug, r.external_type, r.external_id,
-		r.collection_type_field, r.field_value_item, time.Now(), time.Now())
+	result, err := s.insertRuleStm.ExecContext(ctx, r.global_block, r.project_id, nullableId(r.collection_item), nullableId(r.collection_type),
+		nullableId(r.customer), nullableId(r.customer_group), r.mode, r.RuleType,
+		nullableString(r.collection_type_slug), nullableString(r.external_type), nullableString(r.external_id),
+		nullableId(r.collection_type_field), nullableId(r.field_value_item), time.Now(), time.Now())
 	if err != nil {
 		return 0, err
 	}
@@ -180,7 +196,7 @@ func (s *repository) getGlobalBLocks(ctx context.Context, ids []int64) ([]global
 		s.nodeIdSet.metafieldDependenciesId.Int64,
 		placeholders)
 
-	args := make([]any, 0, len(ids)+1)
+	args := make([]any, 0)
 
 	for _, id := range ids {
 		args = append(args, id)
@@ -192,7 +208,7 @@ func (s *repository) getGlobalBLocks(ctx context.Context, ids []int64) ([]global
 	}
 	defer rows.Close()
 
-	var gbs = make([]globalBlock, 0, len(ids)+1)
+	var gbs = make([]globalBlock, 0)
 
 	for rows.Next() {
 		var gb = globalBlock{}
@@ -395,7 +411,7 @@ func newPrepareRepository(ctx context.Context, db *sql.DB) (*repository, error) 
 
 	if err != nil {
 		fmt.Println("Failed to get the node and metafield ids")
-		return nil, fmt.Errorf("Failed to get the node and metafield ids", err)
+		return nil, fmt.Errorf("Failed to get the node and metafield ids: %w", err)
 	}
 
 	insertPageData, err := db.PrepareContext(ctx, `INSERT INTO page_data (project_id,data) SELECT ?, d.body FROM data d WHERE d.id = ?`)

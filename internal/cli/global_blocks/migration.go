@@ -25,7 +25,7 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	db, err := database.NewDB(viper.GetString("database_url"))
 	if err != nil {
 		fmt.Println("Failed to open the connection")
-		return fmt.Errorf("Failed to open the connection", err)
+		return fmt.Errorf("Failed to open the connection: %w", err)
 	}
 
 	fmt.Println("OK")
@@ -35,7 +35,7 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	repo, err := newPrepareRepository(ctx, db)
 	if err != nil {
 		fmt.Println("Failed to prepare statements")
-		return fmt.Errorf("Failed to prepare statements", err)
+		return fmt.Errorf("Failed to prepare statements: %w", err)
 	}
 	fmt.Println("OK")
 
@@ -45,7 +45,7 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	err = migSt.init(ctx, db)
 	if err != nil {
 		fmt.Println("Failed to initialize the state management")
-		return fmt.Errorf("failed to initialize the state management", err)
+		return fmt.Errorf("failed to initialize the state management: %w", err)
 	}
 	lastId, err := migSt.getState(ctx)
 	fmt.Println("starting from:", lastId)
@@ -55,7 +55,7 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		fmt.Println("Failed to get latest migrated id")
-		return fmt.Errorf("Failed to get latest migrated id", err)
+		return fmt.Errorf("Failed to get latest migrated id: %w", err)
 	}
 
 	var count int64
@@ -68,7 +68,7 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		fmt.Println("Failed to get total count")
-		return fmt.Errorf("failed to get total count", err)
+		return fmt.Errorf("failed to get total count: %w", err)
 	}
 
 	if count == 0 {
@@ -122,7 +122,6 @@ func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, 
 		}
 
 		latestMigrated = slices.Max(ids)
-		fmt.Println("Continuing migration with the next batch")
 	}
 }
 
@@ -131,7 +130,8 @@ func migrateBatch(ctx context.Context, migSt *state, repo *repository, ids []int
 	if err != nil {
 		return fmt.Errorf("failed to begin batch transaction: %w", err)
 	}
-	//defer tx.Rollback()
+	// no-op after a successful Commit; releases the connection on every error path
+	defer tx.Rollback()
 
 	txRepo := repo.withTx(ctx, tx)
 	txSt := migSt.withTx(ctx, tx)
@@ -195,14 +195,14 @@ func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (
 	cdId, err := repo.insertCompiledData(ctx, gb.projectId.Int64, gb.compileddataMetafieldValueId.Int64)
 	if err != nil {
 		fmt.Println("Failed to insert compiled data")
-		return 0, fmt.Errorf("failed to insert compiled data", err)
+		return 0, fmt.Errorf("failed to insert compiled data: %w", err)
 	}
 
 	pdId, err := repo.insertPageData(ctx, gb.projectId.Int64, gb.id.Int64)
 
 	if err != nil {
 		fmt.Println("Failed to insert page data")
-		return 0, fmt.Errorf("failed to insert page data", err)
+		return 0, fmt.Errorf("failed to insert page data: %w", err)
 	}
 
 	gbId, err := repo.insertGlobalBlock(
@@ -224,7 +224,7 @@ func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (
 
 	if err != nil {
 		fmt.Println("Failed to insert global block")
-		return 0, fmt.Errorf("failed to insert global block", err)
+		return 0, fmt.Errorf("failed to insert global block: %w", err)
 	}
 
 	return gbId, nil
@@ -234,7 +234,7 @@ func migrateGlobalBlockRules(ctx context.Context, repo *repository, projectId in
 	var data []rule
 
 	if err := json.Unmarshal([]byte(rulesJson), &data); err != nil {
-		return fmt.Errorf("failed to unmarshal the rules json")
+		return fmt.Errorf("failed to unmarshal the rules json: %w", err)
 	}
 
 	rc := &ruleConverter{repo: repo}
@@ -249,7 +249,7 @@ func migrateGlobalBlockRules(ctx context.Context, repo *repository, projectId in
 			rules[i].project_id = projectId
 			_, err := repo.insertRule(ctx, rules[i])
 			if err != nil {
-				return fmt.Errorf("failed to insert rule")
+				return fmt.Errorf("failed to insert rule: %w", err)
 			}
 		}
 	}
