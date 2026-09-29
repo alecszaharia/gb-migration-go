@@ -16,3 +16,4 @@ Build site: context/plans/build-site.md
 - T-019: range worker integration tests — DONE. Files: range_worker_integration_test.go. Tests P (91). No prod bugs.
 - T-017/T-018: errgroup orchestrator + --failed isolation — DONE. Files: orchestrator.go, orchestrator_test.go, migration.go, go.mod/sum (x/sync v0.23.0). Tests P (99, -race).
 - T-015/T-016: split creation/reuse integration tests — DONE. Files: split_integration_test.go, split_reuse_integration_test.go. Tests P. Tier 3 complete; codex gate skipped.
+- FIX 183b5df: deadlock under K>1 w/ failing blocks (RR gap lock inheritance) → READ COMMITTED + batch retry. T-020 (verified, no code gap) + T-029 progress tests — DONE. Files: migration.go, lock_conflict_test.go, progress_integration_test.go. Tests P (-race).
