@@ -20,6 +20,9 @@ var (
 	workers      int
 )
 
+// progressRenderInterval is how often the aggregate progress line is redrawn.
+const progressRenderInterval = 500 * time.Millisecond
+
 func migrationRun(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	// db connection
@@ -50,26 +53,149 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 		fmt.Println("Failed to initialize the state management")
 		return fmt.Errorf("failed to initialize the state management: %w", err)
 	}
-	lastId, err := migSt.getState(ctx)
-	fmt.Println("starting from:", lastId)
+	fmt.Println("OK")
 
-	// initialize migration state
-	latestMigrated, err := migSt.getState(ctx)
-
-	if err != nil {
-		fmt.Println("Failed to get latest migrated id")
-		return fmt.Errorf("Failed to get latest migrated id: %w", err)
+	// --failed never reads or writes the split: it is a single sequential pass
+	if viper.GetBool("failed") {
+		return migrateFailed(ctx, &migSt, repo)
 	}
 
-	var count int64
+	ranges, err := ensureSplit(ctx, db, &migSt, repo, viper.GetInt("workers"))
+	if err != nil {
+		fmt.Println("Failed to prepare the range split")
+		return err
+	}
+	if len(ranges) == 0 {
+		return nil
+	}
 
 	fmt.Println("Getting total counts..")
-	if viper.GetBool("failed") {
-		count, err = repo.getFailedTotalCount(ctx)
-	} else {
-		count, err = repo.getTotalCount(ctx, latestMigrated)
+	var count int64
+	for _, r := range ranges {
+		n, err := repo.getRemainingCountInRange(ctx, r.Watermark, r.Upper)
+		if err != nil {
+			fmt.Println("Failed to get total count")
+			return fmt.Errorf("failed to get total count: %w", err)
+		}
+		count += n
 	}
 
+	if count == 0 {
+		fmt.Println("Nothing to migrate")
+		return nil
+	}
+
+	fmt.Println("Starting migration. Global blocks: ", count)
+	fmt.Println("Batch size: ", batch)
+	fmt.Println("Ranges: ", len(ranges))
+	fmt.Println("Starting..")
+
+	p := newProgress(count, nil, nil)
+	p.startRendering(progressRenderInterval)
+	defer p.stop()
+
+	// Interim sequential orchestration: one range after another.
+	for _, r := range ranges {
+		if err := runRange(ctx, &migSt, repo, r, batch, p); err != nil {
+			fmt.Println("Failed to migrate batch")
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ensureSplit returns the range split to migrate. A stored split is reused
+// as-is, bounds and all, even when requestedK differs from its K. Without a
+// stored split one is computed from the current eligible IDs and persisted
+// before any block is migrated. When there is no stored split and nothing is
+// eligible it prints "Nothing to migrate", stores nothing and returns no
+// ranges.
+func ensureSplit(ctx context.Context, db *sql.DB, migSt *state, repo *repository, requestedK int) ([]storedRange, error) {
+	k, ranges, ok, err := migSt.loadSplit(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		if k != requestedK {
+			fmt.Printf("Notice: stored split has K=%d, requested K=%d; using stored split\n", k, requestedK)
+		}
+		return ranges, nil
+	}
+
+	ids, err := repo.getAllEligibleIds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		fmt.Println("Nothing to migrate")
+		return nil, nil
+	}
+
+	split := computeSplit(ids, requestedK)
+	if err := migSt.storeSplit(ctx, db, split); err != nil {
+		return nil, err
+	}
+
+	ranges = make([]storedRange, 0, len(split))
+	for _, r := range split {
+		ranges = append(ranges, storedRange{idRange: r, Watermark: r.Lower - 1})
+	}
+	return ranges, nil
+}
+
+// runRange migrates range r batch by batch, starting after its watermark.
+// Each batch is committed in its own transaction together with the range's
+// new watermark (the batch maximum). It returns as soon as a lookup finds no
+// more eligible IDs in the range; it never waits for new blocks. p, when not
+// nil, is advanced by the size of each committed batch.
+func runRange(ctx context.Context, migSt *state, repo *repository, r storedRange, batch int, p *progress) error {
+	watermark := r.Watermark
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := callHookBatchStart(r.Index); err != nil {
+			return err
+		}
+
+		ids, err := repo.getGlobalBlocksIdsInRange(ctx, watermark, r.Upper, batch)
+		if err != nil {
+			return fmt.Errorf("failed to get global block ids: %w", err)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+
+		globalBlocks, err := repo.getGlobalBLocks(ctx, ids)
+		if err != nil {
+			return fmt.Errorf("failed to get global block data: %w", err)
+		}
+
+		batchMax := slices.Max(ids)
+		commitProgress := func(txSt *state) error {
+			if err := txSt.updateRangeWatermark(ctx, r.Index, batchMax); err != nil {
+				return err
+			}
+			return callHookBeforeBatchCommit(r.Index)
+		}
+		if err := migrateBatch(ctx, migSt, repo, globalBlocks, nil, commitProgress); err != nil {
+			return err
+		}
+
+		watermark = batchMax
+		if p != nil {
+			p.add(int64(len(ids)))
+		}
+	}
+}
+
+// migrateFailed retries every block in the failed table in one sequential
+// batch. The failed table is cleared in the batch transaction and the blocks
+// that still fail are re-recorded. No migration state is read or written.
+func migrateFailed(ctx context.Context, migSt *state, repo *repository) error {
+	fmt.Println("Getting total counts..")
+	count, err := repo.getFailedTotalCount(ctx)
 	if err != nil {
 		fmt.Println("Failed to get total count")
 		return fmt.Errorf("failed to get total count: %w", err)
@@ -83,61 +209,48 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	fmt.Println("Starting migration. Global blocks: ", count)
 	fmt.Println("Batch size: ", batch)
 	fmt.Println("Starting..")
+	fmt.Println() // reserve the progress line; the batch rewrites it in place
 
-	return iterateThroughBatches(ctx, &migSt, repo, latestMigrated, batch, failed, count)
-}
-
-func iterateThroughBatches(ctx context.Context, migSt *state, repo *repository, latestMigrated int64, batch int, failedOnly bool, count int64) error {
-	var ids []int64
-	var err error
-	var processed int64
-	i := 1
-	fmt.Println() // reserve the progress line; each batch rewrites it in place
-	for {
-		if failedOnly {
-			ids, err = repo.getFailedGlobalBlocksIds(ctx)
-		} else {
-			ids, err = repo.getGlobalBlocksIds(ctx, latestMigrated, batch)
-		}
-
-		if err != nil {
-			fmt.Println("Failed to get global block ids")
-			return fmt.Errorf("failed to get global block ids: %w", err)
-		}
-
-		if len(ids) == 0 {
-			fmt.Println("No entities to process")
-			return nil
-		}
-
-		globalBlocks, err := repo.getGlobalBLocks(ctx, ids)
-
-		if err != nil {
-			fmt.Println("Failed to get global block data")
-			return fmt.Errorf("failed to get global block data: %w", err)
-		}
-		start := time.Now()
-		if err := migrateBatch(ctx, migSt, repo, ids, globalBlocks, failedOnly); err != nil {
-			fmt.Println("Failed to migrate batch")
-			return err
-		}
-		processed += int64(len(ids))
-		blocksPerSecond := float64(len(ids)) / time.Since(start).Seconds()
-
-		fmt.Printf("\033[F\033[2KProgress: %.2f%% (%d/%d) | %.2f blocks/s\n",
-			float64(processed)/float64(count)*100, processed, count, blocksPerSecond)
-
-		// exit the loop as we may end up in a infinite loop if there are broken block that cannot be migrated
-		if failedOnly {
-			return nil
-		}
-
-		latestMigrated = slices.Max(ids)
-		i = i + 1
+	ids, err := repo.getFailedGlobalBlocksIds(ctx)
+	if err != nil {
+		fmt.Println("Failed to get global block ids")
+		return fmt.Errorf("failed to get global block ids: %w", err)
 	}
+
+	if len(ids) == 0 {
+		fmt.Println("No entities to process")
+		return nil
+	}
+
+	globalBlocks, err := repo.getGlobalBLocks(ctx, ids)
+	if err != nil {
+		fmt.Println("Failed to get global block data")
+		return fmt.Errorf("failed to get global block data: %w", err)
+	}
+
+	start := time.Now()
+	// failed ids are re-inserted by migrateBatch for blocks that still fail
+	clearFailed := func(txSt *state) error { return txSt.removeFailedIds(ctx) }
+	if err := migrateBatch(ctx, migSt, repo, globalBlocks, clearFailed, nil); err != nil {
+		fmt.Println("Failed to migrate batch")
+		return err
+	}
+	processed := int64(len(ids))
+	blocksPerSecond := float64(processed) / time.Since(start).Seconds()
+
+	fmt.Printf("\033[F\033[2KProgress: %.2f%% (%d/%d) | %.2f blocks/s\n",
+		float64(processed)/float64(count)*100, processed, count, blocksPerSecond)
+
+	return nil
 }
 
-func migrateBatch(ctx context.Context, migSt *state, repo *repository, ids []int64, globalBlocks []globalBlock, failedOnly bool) error {
+// migrateBatch migrates globalBlocks in a single transaction. Each block runs
+// under its own savepoint, so a failing block is rolled back and recorded in
+// the failed table without affecting its batch peers. beforeBlocks, when not
+// nil, runs in the transaction before any block is migrated; commitProgress,
+// when not nil, runs after the blocks and failed rows are written, right
+// before the commit. An error from either aborts and rolls back the batch.
+func migrateBatch(ctx context.Context, migSt *state, repo *repository, globalBlocks []globalBlock, beforeBlocks, commitProgress func(txSt *state) error) error {
 	tx, err := repo.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin batch transaction: %w", err)
@@ -148,9 +261,8 @@ func migrateBatch(ctx context.Context, migSt *state, repo *repository, ids []int
 	txRepo := repo.withTx(ctx, tx)
 	txSt := migSt.withTx(ctx, tx)
 
-	// failed ids are re-inserted below for blocks that still fail
-	if failedOnly {
-		if err := txSt.removeFailedIds(ctx); err != nil {
+	if beforeBlocks != nil {
+		if err := beforeBlocks(txSt); err != nil {
 			return err
 		}
 	}
@@ -179,9 +291,8 @@ func migrateBatch(ctx context.Context, migSt *state, repo *repository, ids []int
 		return err
 	}
 
-	if !failedOnly {
-		if err := txSt.updateState(ctx, slices.Max(ids)); err != nil {
-			fmt.Println("Failed to update migration state")
+	if commitProgress != nil {
+		if err := commitProgress(txSt); err != nil {
 			return err
 		}
 	}

@@ -219,10 +219,27 @@ func TestHarnessCurrentToolEndToEnd(t *testing.T) {
 		}
 	}
 
-	// sequential tool's watermark
+	// per-range watermarks: every range ends at its last eligible ID
 	eligible := fx.eligibleIDs()
-	if st := stateMap(t, fx.DB); st["latest_processed_block_id"] != eligible[len(eligible)-1] {
-		t.Fatalf("state = %v, want latest_processed_block_id=%d", st, eligible[len(eligible)-1])
+	st := stateMap(t, fx.DB)
+	if _, ok := st[legacyWatermarkKey]; ok {
+		t.Errorf("state has legacy key %s: %v", legacyWatermarkKey, st)
+	}
+	k := int(st[splitKKey])
+	if k < 1 {
+		t.Fatalf("state = %v, want a stored split", st)
+	}
+	for i := 0; i < k; i++ {
+		lower, upper, hasUpper := st[rangeLowerKey(i)], st[rangeUpperKey(i)], i < k-1
+		var last int64
+		for _, id := range eligible {
+			if id >= lower && (!hasUpper || id <= upper) {
+				last = id
+			}
+		}
+		if st[rangeWatermarkKey(i)] != last {
+			t.Errorf("range %d watermark = %d, want %d (state %v)", i, st[rangeWatermarkKey(i)], last, st)
+		}
 	}
 
 	// rerun: nothing left, nothing changes
