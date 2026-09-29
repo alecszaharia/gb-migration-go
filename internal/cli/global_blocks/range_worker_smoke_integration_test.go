@@ -2,7 +2,8 @@ package global_blocks
 
 // End-to-end smoke tests of the range-split migration (T-013/T-014). The
 // detailed per-criterion tests live in later tasks; these prove the pieces
-// fit together and that K=1 and --failed still match the golden baseline.
+// fit together. Golden equivalence (K=1 and --failed vs the pre-change tool)
+// lives in golden_equivalence_integration_test.go (T-028).
 
 import (
 	"context"
@@ -85,43 +86,4 @@ func TestRangeWorkerSmoke(t *testing.T) {
 	if !reflect.DeepEqual(snap, takeSnapshot(t, fx.DB)) {
 		t.Fatal("rerun changed the database")
 	}
-}
-
-// TestRangeWorkerGoldenQuickCheck runs the new tool with one worker (normal)
-// and in --failed mode against the golden fixture and compares with the
-// pre-change tool's recorded outcome.
-func TestRangeWorkerGoldenQuickCheck(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run(goldenNormal, func(t *testing.T) {
-		fx := newFixture(t)
-		seedGoldenFixture(fx)
-		if out, err := fx.run(ctx, append(goldenRunArgs(), "-w", "1")...); err != nil {
-			t.Fatalf("run failed: %v\n%s", err, out)
-		}
-		assertGoldenEqual(t, goldenNormal, loadGolden(t, goldenNormal).goldenSnapshot, captureGolden(t, fx.DB))
-	})
-
-	t.Run(goldenFailed, func(t *testing.T) {
-		fx := newFixture(t)
-		seedGoldenFixture(fx)
-		if out, err := fx.run(ctx, append(goldenRunArgs(), "-w", "1")...); err != nil {
-			t.Fatalf("run failed: %v\n%s", err, out)
-		}
-		applyGoldenFailedFixes(fx)
-		want := loadGolden(t, goldenFailed)
-		before := normaliseFailedRows(t, fx.DB, failedRows(t, fx.DB))
-		if !slices.Equal(before, want.FailedBefore) {
-			t.Errorf("failed table before --failed differs from golden failed_before")
-		}
-		stateBefore := stateMap(t, fx.DB)
-
-		if out, err := fx.run(ctx, goldenFailedRunArgs()...); err != nil {
-			t.Fatalf("--failed run failed: %v\n%s", err, out)
-		}
-		assertGoldenEqual(t, goldenFailed, want.goldenSnapshot, captureGolden(t, fx.DB))
-		if !reflect.DeepEqual(stateBefore, stateMap(t, fx.DB)) {
-			t.Errorf("--failed run changed the state table")
-		}
-	})
 }
