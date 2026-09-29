@@ -17,6 +17,7 @@ func NewDB(dsn string) (*sql.DB, error) {
 	// Inline query args client-side so db.Query/Exec with args costs one round trip
 	// instead of prepare + execute + close. Explicitly prepared statements are unaffected.
 	cfg.InterpolateParams = true
+	cfg.MultiStatements = true
 
 	connector, err := mysql.NewConnector(cfg)
 	if err != nil {

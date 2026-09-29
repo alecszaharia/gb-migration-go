@@ -30,8 +30,6 @@ func Execute(ctx context.Context) {
 	}
 }
 
-var GROUP_MIGRATIONS = "migrations"
-
 func init() {
 	rootCmd.AddGroup(&cobra.Group{ID: "migrations", Title: "Migrations Commands"})
 	gb_migrations := global_blocks.NewCommand("migrations")
