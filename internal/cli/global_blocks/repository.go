@@ -292,22 +292,89 @@ func (s *repository) getGlobalBlocksIds(ctx context.Context, latestId int64, bat
                 ORDER BY d.id ASC
                 LIMIT ?`, s.nodeIdSet.metafieldApiVersionId, s.nodeIdSet.globalBlockNodeId, latestId, batch)
 	if err != nil {
-		return nil, fmt.Errorf("Faild to query the global blocks")
+		return nil, fmt.Errorf("failed to query the global block ids: %w", err)
+	}
+	defer rows.Close()
+
+	return scanIds(rows, batch)
+}
+
+// eligibleFrom is the shared FROM/WHERE clause selecting eligible global
+// blocks: data rows of the global block node whose parent project has
+// api_version = 2. Its first two placeholders are the api_version metafield id
+// and the global block node id.
+const eligibleFrom = `FROM metafield__int mi
+                STRAIGHT_JOIN data d ON d.parent_id = mi.entity_id
+                WHERE mi.metafield_id = ? AND mi.value = 2 AND d.node_id = ?`
+
+// rangeUpperArg converts an optional inclusive upper bound into a SQL argument;
+// nil (open-ended range) becomes NULL so "? IS NULL OR d.id <= ?" is unbounded.
+func rangeUpperArg(upper *int64) any {
+	if upper == nil {
+		return nil
+	}
+	return *upper
+}
+
+// getAllEligibleIds returns every eligible global block ID in ascending order.
+// It runs directly on the *sql.DB and is safe for concurrent use.
+func (s *repository) getAllEligibleIds(ctx context.Context) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT d.id `+eligibleFrom+`
+                ORDER BY d.id ASC`, s.nodeIdSet.metafieldApiVersionId, s.nodeIdSet.globalBlockNodeId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query eligible global block ids: %w", err)
+	}
+	defer rows.Close()
+
+	return scanIds(rows, 0)
+}
+
+// getGlobalBlocksIdsInRange returns up to batch eligible IDs in (after, upper],
+// ascending. A nil upper means the range is open-ended. It runs directly on the
+// *sql.DB and is safe for concurrent use.
+func (s *repository) getGlobalBlocksIdsInRange(ctx context.Context, after int64, upper *int64, batch int) ([]int64, error) {
+	u := rangeUpperArg(upper)
+	rows, err := s.db.QueryContext(ctx, `SELECT d.id `+eligibleFrom+`
+                AND d.id > ? AND (? IS NULL OR d.id <= ?)
+                ORDER BY d.id ASC
+                LIMIT ?`, s.nodeIdSet.metafieldApiVersionId, s.nodeIdSet.globalBlockNodeId, after, u, u, batch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query global block ids in range: %w", err)
+	}
+	defer rows.Close()
+
+	return scanIds(rows, batch)
+}
+
+// getRemainingCountInRange counts eligible IDs in (after, upper]. A nil upper
+// means the range is open-ended. It is safe for concurrent use.
+func (s *repository) getRemainingCountInRange(ctx context.Context, after int64, upper *int64) (int64, error) {
+	u := rangeUpperArg(upper)
+	var total int64
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) `+eligibleFrom+`
+                AND d.id > ? AND (? IS NULL OR d.id <= ?)`,
+		s.nodeIdSet.metafieldApiVersionId, s.nodeIdSet.globalBlockNodeId, after, u, u).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count remaining global blocks in range: %w", err)
 	}
 
-	var result = make([]int64, 0, batch)
+	return total, nil
+}
 
+// scanIds reads a single int64 column from rows. capHint pre-sizes the result.
+func scanIds(rows *sql.Rows, capHint int) ([]int64, error) {
+	result := make([]int64, 0, capHint)
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				return nil, fmt.Errorf("failed to get row: %s", err)
-			}
+			return nil, fmt.Errorf("failed to get row: %w", err)
 		}
-
 		result = append(result, id)
 	}
-	defer rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate rows: %w", err)
+	}
+
 	return result, nil
 }
 
