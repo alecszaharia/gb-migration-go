@@ -55,7 +55,11 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println("OK")
 
-	// --failed never reads or writes the split: it is a single sequential pass
+	// --failed is isolated from the range split and the workers: this branch
+	// must stay before ensureSplit (and any loadSplit). --workers is ignored
+	// here (it only sizes the connection pool), exactly one goroutine
+	// processes the failed table, and migrateFailed never reads or writes any
+	// migration state key (no split, no per-range watermark).
 	if viper.GetBool("failed") {
 		return migrateFailed(ctx, &migSt, repo)
 	}
@@ -94,12 +98,12 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 	p.startRendering(progressRenderInterval)
 	defer p.stop()
 
-	// Interim sequential orchestration: one range after another.
-	for _, r := range ranges {
-		if err := runRange(ctx, &migSt, repo, r, batch, p); err != nil {
-			fmt.Println("Failed to migrate batch")
-			return err
-		}
+	// One concurrent worker per range; the first fatal error cancels them all.
+	if err := runRanges(ctx, &migSt, repo, ranges, batch, p); err != nil {
+		// stop first: the final render rewrites the line above it
+		p.stop()
+		fmt.Println("Error:", err)
+		return err
 	}
 
 	return nil
