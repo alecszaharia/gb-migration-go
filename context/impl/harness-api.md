@@ -34,3 +34,10 @@ Process-global state (viper, captureStdout, setTestHook): DB/command tests must 
 
 ## State API (T-009, state.go)
 - `storedRange{idRange; Watermark int64}`; `(s *state) loadSplit(ctx) (k, []storedRange, ok, err)`; `(s *state) storeSplit(ctx, db, []idRange) error` (one tx; hook step 0..splitStoreWrites(ranges)); `(s *state) updateRangeWatermark(ctx, idx, id)` (use on `withTx` copy). Test helper name `i64` already taken.
+
+## Migration API (T-013/T-014, migration.go)
+- `ensureSplit(ctx, db *sql.DB, migSt *state, repo *repository, requestedK int) ([]storedRange, error)` — nil,nil + prints `Nothing to migrate` when no eligible.
+- `runRange(ctx, migSt *state, repo *repository, r storedRange, batch int, p *progress) error`
+- `migrateBatch(ctx, migSt, repo, globalBlocks, beforeBlocks, commitProgress func(txSt *state) error) error`
+- `migrateFailed(ctx, migSt, repo) error` — --failed path; no state keys.
+- Build migSt/repo in tests: `repo, _ := newPrepareRepository(ctx, db)`; `migSt := state{}; migSt.init(ctx, db)`.
