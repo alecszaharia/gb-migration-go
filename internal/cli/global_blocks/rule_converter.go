@@ -1,6 +1,7 @@
 package global_blocks
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -8,11 +9,58 @@ import (
 	"strings"
 )
 
+type EntityValue string
+type ApplyFor int
+
+func (e ApplyFor) String() string {
+	return fmt.Sprintf("%d", e)
+}
+
+func (e *ApplyFor) UnmarshalJSON(data []byte) error {
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err != nil {
+		return err
+	}
+	v, err := n.Int64()
+	if err != nil {
+		return err
+	}
+	*e = ApplyFor(v)
+	return nil
+}
+
+func (e EntityValue) String() string {
+	return string(e)
+}
+
+func (e *EntityValue) UnmarshalJSON(data []byte) error {
+	var str string
+	var n json.Number
+	if err := json.Unmarshal(data, &str); err != nil {
+		if err := json.Unmarshal(data, &n); err != nil {
+			return err
+		}
+		*e = EntityValue(n)
+		return nil
+	}
+	*e = EntityValue(str)
+	return nil
+}
+
+func toStringSlice(ev []EntityValue) []string {
+	values := make([]string, 0, len(ev))
+	for _, v := range ev {
+		values = append(values, v.String())
+	}
+
+	return values
+}
+
 type rule struct {
 	RuleType     int `json:"type"`
 	AppliedFor   *int
 	EntityType   string
-	EntityValues []string
+	EntityValues []EntityValue
 	Mode         string
 }
 
@@ -59,9 +107,10 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 	modeSpecific := hasMode && ("specific" == r.Mode)
 	hasEntityType := r.EntityType != ""
 	hasEntityValues := len(r.EntityValues) > 0
-	hasEcwidItem := slices.IndexFunc(r.EntityValues, func(item string) bool { return strings.Contains(item, "ecwid-product") }) != -1
-	hasEcwidCategory := slices.IndexFunc(r.EntityValues, func(item string) bool { return strings.Contains(item, "ecwid-category") }) != -1
-	hasCollectionTypeFieldValue := slices.IndexFunc(r.EntityValues, func(item string) bool { return strings.Contains(item, "collection_type_fields") }) != -1
+	evSlice := toStringSlice(r.EntityValues)
+	hasEcwidItem := slices.IndexFunc(evSlice, func(item string) bool { return strings.Contains(item, "ecwid-product") }) != -1
+	hasEcwidCategory := slices.IndexFunc(evSlice, func(item string) bool { return strings.Contains(item, "ecwid-category") }) != -1
+	hasCollectionTypeFieldValue := slices.IndexFunc(evSlice, func(item string) bool { return strings.Contains(item, "collection_type_fields") }) != -1
 	entityTypeCustomer := hasEntityType && "customer" == r.EntityType
 	noEntityValues := !hasEntityValues
 
@@ -70,7 +119,7 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 	if !modeReference && hasEntityType && hasEntityValues && (hasEcwidItem || hasEcwidCategory) {
 		for _, ev := range r.EntityValues {
 			aR := nr
-			parts := strings.Split(ev, "/")
+			parts := strings.Split(ev.String(), "/")
 			aR.RuleType = RULE_TYPE_SPECIFIC
 
 			if parts[0] != "" {
@@ -88,7 +137,7 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 	if modeReference && hasEntityType && hasEntityValues && hasEcwidCategory {
 		for _, ev := range r.EntityValues {
 			aR := nr
-			values := strings.Split(ev, ":")
+			values := strings.Split(ev.String(), ":")
 
 			var value string
 
@@ -116,25 +165,25 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 	if modeReference && !entityTypeCustomer && hasEntityValues && hasCollectionTypeFieldValue {
 		for _, ev := range r.EntityValues {
 			aR := nr
-			values := strings.Split(ev, ":")
+			values := strings.Split(ev.String(), ":")
 			aR.RuleType = RULE_TYPE_REFERENCE
 
 			if values[0] != "" {
 				fieldId, err := rc.getIdFomIri(values[0])
 				if err != nil {
-					return nil, err
+					continue
 				}
 				aR.collection_type_field = fieldId
 				collectionTypeId, err := rc.repo.getCollectionTypeFromFieldTypeId(fieldId)
 				if err != nil {
-					return nil, fmt.Errorf("failed to get collection type for field %d: %w", fieldId, err)
+					continue
 				}
 				aR.collection_type = collectionTypeId
 			}
 			if len(values) > 1 && values[1] != "" {
 				id, err := rc.getIdFomIri(values[1])
 				if err != nil {
-					return nil, err
+					continue
 				}
 				aR.field_value_item = id
 			}
@@ -148,18 +197,18 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 	if modeReference && !entityTypeCustomer && hasEntityValues {
 		for _, ev := range r.EntityValues {
 			aR := nr
-			values := strings.Split(ev, ":")
+			values := strings.Split(ev.String(), ":")
 			aR.RuleType = RULE_TYPE_REFERENCE
 			id, err := rc.getIdFomIri(r.EntityType)
 			if err != nil {
-				return nil, err
+				continue
 			}
 			aR.collection_type = id
 
 			if len(values) > 1 && values[1] != "" {
 				id, err := rc.getIdFomIri(values[1])
 				if err != nil {
-					return nil, err
+					continue
 				}
 				aR.collection_item = id
 			}
@@ -183,7 +232,7 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 		aR.RuleType = RULE_TYPE_REFERENCE
 		id, err := rc.getIdFomIri(r.EntityType)
 		if err != nil {
-			return nil, err
+			return results, nil
 		}
 		aR.collection_type = id
 		results = append(results, aR)
@@ -200,9 +249,9 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 			aR := nr
 			aR.RuleType = RULE_TYPE_REFERENCE
 			aR.collection_type_slug = "customer_group"
-			id, err := rc.getIdFomIri(ev)
+			id, err := rc.getIdFomIri(ev.String())
 			if err != nil {
-				return nil, err
+				continue
 			}
 			aR.customer_group = id
 			results = append(results, aR)
@@ -217,13 +266,13 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 			if r.EntityType != "" {
 				id, err := rc.getIdFomIri(r.EntityType)
 				if err != nil {
-					return nil, err
+					continue
 				}
 				aR.collection_type = id
 			}
-			id, err := rc.getIdFomIri(ev)
+			id, err := rc.getIdFomIri(ev.String())
 			if err != nil {
-				return nil, err
+				continue
 			}
 			aR.collection_item = id
 			results = append(results, aR)
@@ -236,9 +285,9 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 			aR := nr
 			aR.RuleType = RULE_TYPE_SPECIFIC
 			aR.collection_type_slug = "customer"
-			id, err := rc.getIdFomIri(ev)
+			id, err := rc.getIdFomIri(ev.String())
 			if err != nil {
-				return nil, err
+				continue
 			}
 			aR.customer = id
 			results = append(results, aR)

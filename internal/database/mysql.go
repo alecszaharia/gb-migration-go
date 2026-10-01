@@ -42,7 +42,7 @@ func NewDB(dsn string, workers int) (*sql.DB, error) {
 // the coordinator's own queries never wait on a connection: max(workers+1, 20).
 func configurePool(db *sql.DB, workers int) {
 	n := max(workers+1, 20)
-	db.SetConnMaxLifetime(time.Minute * 3)
+	db.SetConnMaxLifetime(time.Minute * 10)
 	db.SetMaxOpenConns(n)
 	db.SetMaxIdleConns(n)
 }

@@ -303,7 +303,7 @@ func migrateBatch(ctx context.Context, migSt *state, repo *repository, globalBlo
 			return err
 		}
 	}
-
+	rc := &ruleConverter{repo: txRepo}
 	failedBlocks := make(map[int64]string)
 
 	for i, gb := range globalBlocks {
@@ -314,7 +314,7 @@ func migrateBatch(ctx context.Context, migSt *state, repo *repository, globalBlo
 			return fmt.Errorf("failed to create savepoint for global block %d: %w", gb.id.Int64, err)
 		}
 
-		if err := migrateGlobalBlockWithRules(ctx, txRepo, gb); err != nil {
+		if err := migrateGlobalBlockWithRules(ctx, rc, txRepo, gb); err != nil {
 			// a lock conflict is not the block's fault: a deadlock has already rolled back
 			// the whole transaction, so abort the batch and let the caller retry it
 			if isLockConflict(err) {
@@ -349,13 +349,13 @@ func migrateBatch(ctx context.Context, migSt *state, repo *repository, globalBlo
 	return nil
 }
 
-func migrateGlobalBlockWithRules(ctx context.Context, repo *repository, gb globalBlock) error {
+func migrateGlobalBlockWithRules(ctx context.Context, rc *ruleConverter, repo *repository, gb globalBlock) error {
 	nid, err := migrateGlobalBlock(ctx, repo, gb)
 	if err != nil {
 		return err
 	}
 
-	return migrateGlobalBlockRules(ctx, repo, gb.projectId.Int64, nid, gb.rules.String)
+	return migrateGlobalBlockRules(ctx, rc, repo, gb.projectId.Int64, nid, gb.rules.String)
 }
 
 func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (int64, error) {
@@ -399,19 +399,18 @@ func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (
 	return gbId, nil
 }
 
-func migrateGlobalBlockRules(ctx context.Context, repo *repository, projectId int64, bockId int64, rulesJson string) error {
+func migrateGlobalBlockRules(ctx context.Context, rc *ruleConverter, repo *repository, projectId int64, bockId int64, rulesJson string) error {
 	var data []rule
 
 	if err := json.Unmarshal([]byte(rulesJson), &data); err != nil {
 		return fmt.Errorf("failed to unmarshal the rules json: %w", err)
 	}
 
-	rc := &ruleConverter{repo: repo}
-
 	for _, r := range data {
 		rules, err := rc.convertOldRuleToSqlRule(&r)
 		if err != nil {
-			return fmt.Errorf("failed to convert old rule to new rule: %w", err)
+			fmt.Printf("failed to convert old rule to new rule: %s\n", err)
+			continue
 		}
 		for i := range rules {
 			rules[i].global_block = bockId
