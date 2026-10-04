@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"time"
 
@@ -402,7 +403,7 @@ func migrateGlobalBlock(ctx context.Context, repo *repository, gb globalBlock) (
 func migrateGlobalBlockRules(ctx context.Context, rc *ruleConverter, repo *repository, projectId int64, bockId int64, rulesJson string) error {
 	var data []rule
 
-	if err := json.Unmarshal([]byte(rulesJson), &data); err != nil {
+	if err := json.Unmarshal([]byte(normalizeRuleJson(rulesJson)), &data); err != nil {
 		return fmt.Errorf("failed to unmarshal the rules json: %w", err)
 	}
 
@@ -422,4 +423,9 @@ func migrateGlobalBlockRules(ctx context.Context, rc *ruleConverter, repo *repos
 		}
 	}
 	return nil
+}
+
+func normalizeRuleJson(rulesJson string) string {
+	re := regexp.MustCompile(`,"appliedFor":(.*?),`)
+	return re.ReplaceAllString(rulesJson, ",")
 }

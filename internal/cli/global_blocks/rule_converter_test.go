@@ -3,7 +3,6 @@ package global_blocks
 import (
 	"encoding/json"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -78,43 +77,9 @@ func TestEntityValueUnmarshalJSON(t *testing.T) {
 	}
 }
 
-func TestApplyForUnmarshalJSON(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		want    ApplyFor
-		wantErr bool
-	}{
-		{name: "integer", input: `3`, want: 3},
-		{name: "negative", input: `-1`, want: -1},
-		{name: "float rejected", input: `1.5`, wantErr: true},
-		// json.Number accepts a quoted numeric literal.
-		{name: "numeric string", input: `"3"`, want: 3},
-		{name: "non-numeric string rejected", input: `"abc"`, wantErr: true},
-		{name: "bool rejected", input: `true`, wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var got ApplyFor
-			err := json.Unmarshal([]byte(tt.input), &got)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("err=%v, wantErr=%v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				return
-			}
-			if got != tt.want {
-				t.Errorf("got %d, want %d", got, tt.want)
-			}
-			if want := strconv.Itoa(int(tt.want)); got.String() != want {
-				t.Errorf("String()=%q, want %q", got.String(), want)
-			}
-		})
-	}
-}
-
 // Mirrors how migrateGlobalBlockRules decodes the stored JSON column, including
-// legacy payloads where entityValues were stored as raw numbers.
+// legacy payloads where entityValues were stored as raw numbers. appliedFor is
+// present in stored payloads but not mapped, so it must be ignored.
 func TestRuleJSONDecoding(t *testing.T) {
 	src := `[
 		{"type":1,"appliedFor":2,"entityType":"customer","entityValues":[7,"/customers/2"],"mode":"specific"},
@@ -129,8 +94,7 @@ func TestRuleJSONDecoding(t *testing.T) {
 		t.Fatalf("len=%d, want 2", len(got))
 	}
 
-	applied := 2
-	want0 := rule{RuleType: 1, AppliedFor: &applied, EntityType: "customer", EntityValues: evs("7", "/customers/2"), Mode: "specific"}
+	want0 := rule{RuleType: 1, EntityType: "customer", EntityValues: evs("7", "/customers/2"), Mode: "specific"}
 	if !reflect.DeepEqual(got[0], want0) {
 		t.Errorf("rule[0]=%+v, want %+v", got[0], want0)
 	}

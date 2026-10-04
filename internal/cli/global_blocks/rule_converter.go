@@ -10,24 +10,6 @@ import (
 )
 
 type EntityValue string
-type ApplyFor int
-
-func (e ApplyFor) String() string {
-	return fmt.Sprintf("%d", e)
-}
-
-func (e *ApplyFor) UnmarshalJSON(data []byte) error {
-	var n json.Number
-	if err := json.Unmarshal(data, &n); err != nil {
-		return err
-	}
-	v, err := n.Int64()
-	if err != nil {
-		return err
-	}
-	*e = ApplyFor(v)
-	return nil
-}
 
 func (e EntityValue) String() string {
 	return string(e)
@@ -58,7 +40,6 @@ func toStringSlice(ev []EntityValue) []string {
 
 type rule struct {
 	RuleType     int `json:"type"`
-	AppliedFor   *int
 	EntityType   string
 	EntityValues []EntityValue
 	Mode         string
