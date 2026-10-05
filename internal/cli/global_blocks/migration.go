@@ -410,7 +410,6 @@ func migrateGlobalBlockRules(ctx context.Context, rc *ruleConverter, repo *repos
 	for _, r := range data {
 		rules, err := rc.convertOldRuleToSqlRule(&r)
 		if err != nil {
-			fmt.Printf("failed to convert old rule to new rule: %s\n", err)
 			continue
 		}
 		for i := range rules {

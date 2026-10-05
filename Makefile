@@ -11,8 +11,6 @@ GOOS     ?= $(shell go env GOOS)
 GOARCH   ?= $(shell go env GOARCH)
 CGO_ENABLED   ?= $(shell go env CGO_ENABLED)
 
-# MySQL server DSN for integration tests, e.g. root:nopassword@tcp(127.0.0.1:3306)/
-# The harness creates/drops throwaway gbtest_* schemas; existing databases are untouched.
 GB_MIGRATION_TEST_DSN ?=
 
 GO_FILES := $(shell find . -name '*.go' -not -path './bin/*' -not -path './.git/*')
