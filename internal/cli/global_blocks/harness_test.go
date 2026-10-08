@@ -212,8 +212,8 @@ const (
 const (
 	// specific item of a collection type: collection_type + collection_item
 	rulesSpecificItem = `[{"type":1,"appliedFor":1,"entityType":"/collection_types/26","entityValues":["/collection_items/33"],"mode":"specific"}]`
-	// whole collection type: referenced collection_type
-	rulesReferencedType = `[{"type":1,"appliedFor":1,"entityType":"/collection_types/26","entityValues":[]}]`
+	// whole collection type: specific collection_type, no mode
+	rulesCollectionTypeOnly = `[{"type":1,"appliedFor":1,"entityType":"/collection_types/26","entityValues":[]}]`
 	// exclude an ecwid product: external_type/external_id, no FKs
 	rulesExcludeEcwid = `[{"type":2,"appliedFor":1,"entityType":"ecwid-product","entityValues":["ecwid-product/12345"]}]`
 	// everywhere: no entity type, no values
@@ -225,16 +225,16 @@ const (
 )
 
 var fxRuleCount = map[string]int{
-	rulesSpecificItem:   1,
-	rulesReferencedType: 1,
-	rulesExcludeEcwid:   1,
-	rulesEverywhere:     1,
-	rulesMulti:          2,
-	rulesNone:           0,
+	rulesSpecificItem:       1,
+	rulesCollectionTypeOnly: 1,
+	rulesExcludeEcwid:       1,
+	rulesEverywhere:         1,
+	rulesMulti:              2,
+	rulesNone:               0,
 }
 
 // fxRuleVariants is the rotation used for blocks seeded without explicit rules.
-var fxRuleVariants = []string{rulesSpecificItem, rulesReferencedType, rulesExcludeEcwid, rulesEverywhere, rulesMulti, rulesNone}
+var fxRuleVariants = []string{rulesSpecificItem, rulesCollectionTypeOnly, rulesExcludeEcwid, rulesEverywhere, rulesMulti, rulesNone}
 
 // failKind selects how a seeded eligible block fails migrateGlobalBlockWithRules.
 type failKind int

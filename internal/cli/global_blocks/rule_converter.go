@@ -100,7 +100,7 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 	if !modeReference && hasEntityType && hasEntityValues && (hasEcwidItem || hasEcwidCategory) {
 		for _, ev := range r.EntityValues {
 			aR := nr
-			parts := strings.Split(ev.String(), "/")
+			parts := strings.SplitN(ev.String(), "/", 2)
 			aR.RuleType = RULE_TYPE_SPECIFIC
 
 			if parts[0] != "" {
@@ -128,7 +128,7 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 				value = values[0]
 			}
 
-			parts := strings.Split(value, "/")
+			parts := strings.SplitN(value, "/", 2)
 			if parts[0] != "" {
 				aR.RuleType = RULE_TYPE_REFERENCE
 				aR.external_type = parts[0]
@@ -176,15 +176,21 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 	}
 
 	if modeReference && !entityTypeCustomer && hasEntityValues {
+		// PHP: collection_type is null when the rule carries no entityType; the rows are still emitted.
+		var collectionType int64
+		if hasEntityType {
+			id, err := rc.getIdFomIri(r.EntityType)
+			if err != nil {
+				return results, nil
+			}
+			collectionType = id
+		}
+
 		for _, ev := range r.EntityValues {
 			aR := nr
 			values := strings.Split(ev.String(), ":")
 			aR.RuleType = RULE_TYPE_REFERENCE
-			id, err := rc.getIdFomIri(r.EntityType)
-			if err != nil {
-				continue
-			}
-			aR.collection_type = id
+			aR.collection_type = collectionType
 
 			if len(values) > 1 && values[1] != "" {
 				id, err := rc.getIdFomIri(values[1])
@@ -202,7 +208,7 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 
 	if entityTypeCustomer && noEntityValues {
 		aR := nr
-		aR.RuleType = RULE_TYPE_REFERENCE
+		aR.RuleType = RULE_TYPE_SPECIFIC
 		aR.collection_type_slug = "customer"
 		results = append(results, aR)
 		return results, nil
@@ -210,7 +216,7 @@ func (rc *ruleConverter) convertOldRuleToSqlRule(r *rule) ([]newRule, error) {
 
 	if hasEntityType && !entityTypeCustomer && !hasEntityValues && !hasMode {
 		aR := nr
-		aR.RuleType = RULE_TYPE_REFERENCE
+		aR.RuleType = RULE_TYPE_SPECIFIC
 		id, err := rc.getIdFomIri(r.EntityType)
 		if err != nil {
 			return results, nil

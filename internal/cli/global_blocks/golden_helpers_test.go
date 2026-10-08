@@ -78,9 +78,9 @@ var (
 	goldenLegacyAPIIDs      = []int64{9, 700, 25000}
 	goldenNoAPIVersionIDs   = []int64{11, 1500, 40000}
 	goldenFixedFailingRules = map[int64]string{
-		100: rulesSpecificItem,   // was failMalformedRules
-		400: rulesExcludeEcwid,   // was failInvalidIRI
-		999: rulesReferencedType, // was failMissingCollectionType
+		100: rulesSpecificItem,       // was failMalformedRules
+		400: rulesExcludeEcwid,       // was failInvalidIRI
+		999: rulesCollectionTypeOnly, // was failMissingCollectionType
 	}
 )
 

@@ -209,6 +209,21 @@ func TestConvertOldRuleToSqlRule(t *testing.T) {
 			},
 		},
 		{
+			// PHP explode('/', $v, 2): everything after the first slash is the external id.
+			name: "ecwid product specific keeps slashes in id",
+			rule: rule{RuleType: 1, EntityType: "ecwid-product", EntityValues: evs("ecwid-product/a/b")},
+			want: []newRule{
+				{mode: MODE_INCLUDE, RuleType: RULE_TYPE_SPECIFIC, external_type: "ecwid-product", external_id: "a/b"},
+			},
+		},
+		{
+			name: "ecwid category reference keeps slashes in id",
+			rule: rule{RuleType: 1, EntityType: "ecwid-product", Mode: "reference", EntityValues: evs("category:ecwid-category/7/8")},
+			want: []newRule{
+				{mode: MODE_INCLUDE, RuleType: RULE_TYPE_REFERENCE, external_type: "ecwid-category", external_id: "7/8"},
+			},
+		},
+		{
 			name: "ecwid category reference with prefix",
 			rule: rule{RuleType: 1, EntityType: "ecwid-product", Mode: "reference", EntityValues: evs("category:ecwid-category/7")},
 			want: []newRule{
@@ -294,24 +309,33 @@ func TestConvertOldRuleToSqlRule(t *testing.T) {
 			},
 		},
 		{
+			// PHP leaves collection_type null when the rule has no entityType and still emits the rows.
+			name: "collection item reference without entity type keeps rows",
+			rule: rule{RuleType: 1, Mode: "reference", EntityValues: evs("/collection_items/5:/collection_items/9", "/collection_items/6")},
+			want: []newRule{
+				{mode: MODE_INCLUDE, RuleType: RULE_TYPE_REFERENCE, collection_item: 9},
+				{mode: MODE_INCLUDE, RuleType: RULE_TYPE_REFERENCE},
+			},
+		},
+		{
 			name: "customer without values",
 			rule: rule{RuleType: 1, EntityType: "customer"},
 			want: []newRule{
-				{mode: MODE_INCLUDE, RuleType: RULE_TYPE_REFERENCE, collection_type_slug: "customer"},
+				{mode: MODE_INCLUDE, RuleType: RULE_TYPE_SPECIFIC, collection_type_slug: "customer"},
 			},
 		},
 		{
 			name: "customer without values ignores mode",
 			rule: rule{RuleType: 0, EntityType: "customer", Mode: "reference"},
 			want: []newRule{
-				{mode: MODE_EXCLUDE, RuleType: RULE_TYPE_REFERENCE, collection_type_slug: "customer"},
+				{mode: MODE_EXCLUDE, RuleType: RULE_TYPE_SPECIFIC, collection_type_slug: "customer"},
 			},
 		},
 		{
 			name: "collection type only, no mode",
 			rule: rule{RuleType: 1, EntityType: "/collection_types/4"},
 			want: []newRule{
-				{mode: MODE_INCLUDE, RuleType: RULE_TYPE_REFERENCE, collection_type: 4},
+				{mode: MODE_INCLUDE, RuleType: RULE_TYPE_SPECIFIC, collection_type: 4},
 			},
 		},
 		{

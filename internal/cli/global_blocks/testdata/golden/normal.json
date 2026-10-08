@@ -26,7 +26,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "include",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -136,7 +136,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "exclude",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -217,7 +217,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "include",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -359,7 +359,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "exclude",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -405,7 +405,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "exclude",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -486,7 +486,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "include",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -535,7 +535,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "include",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -645,7 +645,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "exclude",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -726,7 +726,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "include",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -790,7 +790,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "include",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -984,7 +984,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "include",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -1030,7 +1030,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "exclude",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -1157,7 +1157,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "exclude",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -1238,7 +1238,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "include",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -1316,7 +1316,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "exclude",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
@@ -1510,7 +1510,7 @@
         {
           "ProjectID": "1000001",
           "Mode": "include",
-          "Type": "referenced",
+          "Type": "specific",
           "CollectionItem": "\u003cNULL\u003e",
           "CollectionType": "26",
           "Customer": "\u003cNULL\u003e",
