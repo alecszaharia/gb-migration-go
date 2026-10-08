@@ -247,7 +247,7 @@ func (s *repository) getTotalCount(ctx context.Context, startId int64) (int64, e
 				SELECT COUNT(*)
                 FROM metafield__int mi
                 STRAIGHT_JOIN data d ON d.parent_id = mi.entity_id
-                WHERE mi.metafield_id = ? AND mi.value = 2 and d.node_id=? and d.id > ?`)
+                WHERE mi.metafield_id = ? AND mi.value = 2 and d.node_id=? and d.id + 0 > ?`)
 
 	if err != nil {
 		return 0, fmt.Errorf("failed to to prepare statement: %s", err)
@@ -288,7 +288,7 @@ func (s *repository) getGlobalBlocksIds(ctx context.Context, latestId int64, bat
 	rows, err := s.db.QueryContext(ctx, `SELECT d.id
                 FROM metafield__int mi
                 STRAIGHT_JOIN data d ON d.parent_id = mi.entity_id
-                WHERE mi.metafield_id = ? AND mi.value = 2 and d.node_id=? and d.id > ?
+                WHERE mi.metafield_id = ? AND mi.value = 2 and d.node_id=? and d.id + 0 > ?
                 ORDER BY d.id ASC
                 LIMIT ?`, s.nodeIdSet.metafieldApiVersionId, s.nodeIdSet.globalBlockNodeId, latestId, batch)
 	if err != nil {
@@ -307,8 +307,18 @@ const eligibleFrom = `FROM metafield__int mi
                 STRAIGHT_JOIN data d ON d.parent_id = mi.entity_id
                 WHERE mi.metafield_id = ? AND mi.value = 2 AND d.node_id = ?`
 
+// eligibleInRange narrows eligibleFrom to IDs in (after, upper]; its
+// placeholders are after, upper, upper. The bounds are compared against
+// d.id + 0 on purpose: with a plain range on d.id MySQL 8.4 joins data using
+// "Range checked for each record" with an index merge and silently returns
+// only part of the matching rows, so lookups came back short or empty while
+// eligible blocks remained. The expression keeps the join on the parent_id
+// index, the same plan getAllEligibleIds uses.
+const eligibleInRange = `
+                AND d.id + 0 > ? AND (? IS NULL OR d.id + 0 <= ?)`
+
 // rangeUpperArg converts an optional inclusive upper bound into a SQL argument;
-// nil (open-ended range) becomes NULL so "? IS NULL OR d.id <= ?" is unbounded.
+// nil (open-ended range) becomes NULL so "? IS NULL OR d.id + 0 <= ?" is unbounded.
 func rangeUpperArg(upper *int64) any {
 	if upper == nil {
 		return nil
@@ -334,8 +344,7 @@ func (s *repository) getAllEligibleIds(ctx context.Context) ([]int64, error) {
 // *sql.DB and is safe for concurrent use.
 func (s *repository) getGlobalBlocksIdsInRange(ctx context.Context, after int64, upper *int64, batch int) ([]int64, error) {
 	u := rangeUpperArg(upper)
-	rows, err := s.db.QueryContext(ctx, `SELECT d.id `+eligibleFrom+`
-                AND d.id > ? AND (? IS NULL OR d.id <= ?)
+	rows, err := s.db.QueryContext(ctx, `SELECT d.id `+eligibleFrom+eligibleInRange+`
                 ORDER BY d.id ASC
                 LIMIT ?`, s.nodeIdSet.metafieldApiVersionId, s.nodeIdSet.globalBlockNodeId, after, u, u, batch)
 	if err != nil {
@@ -351,8 +360,7 @@ func (s *repository) getGlobalBlocksIdsInRange(ctx context.Context, after int64,
 func (s *repository) getRemainingCountInRange(ctx context.Context, after int64, upper *int64) (int64, error) {
 	u := rangeUpperArg(upper)
 	var total int64
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) `+eligibleFrom+`
-                AND d.id > ? AND (? IS NULL OR d.id <= ?)`,
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) `+eligibleFrom+eligibleInRange,
 		s.nodeIdSet.metafieldApiVersionId, s.nodeIdSet.globalBlockNodeId, after, u, u).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count remaining global blocks in range: %w", err)

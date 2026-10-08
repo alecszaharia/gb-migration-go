@@ -28,6 +28,8 @@ const progressRenderInterval = 500 * time.Millisecond
 
 func migrationRun(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
+	// flags are valid from here on: a runtime error is not a usage error
+	cmd.SilenceUsage = true
 	// db connection
 	fmt.Print("Getting node and metafield ids: ")
 
@@ -107,6 +109,13 @@ func migrationRun(cmd *cobra.Command, args []string) error {
 		p.stop()
 		fmt.Println("Error:", err)
 		return err
+	}
+
+	// stop first: the final render rewrites the line above it
+	p.stop()
+	if processed := p.processed.Load(); processed < count {
+		fmt.Printf("Warning: processed %d of the %d blocks counted at start; %d were not returned by the range lookups\n",
+			processed, count, count-processed)
 	}
 
 	return nil
@@ -248,6 +257,7 @@ func migrateFailed(ctx context.Context, migSt *state, repo *repository) error {
 	fmt.Printf("\033[F\033[2KProgress: %.2f%% (%d/%d) | %.2f blocks/s\n",
 		float64(processed)/float64(count)*100, processed, count, blocksPerSecond)
 
+	fmt.Println("Migration complete!")
 	return nil
 }
 
@@ -417,6 +427,11 @@ func migrateGlobalBlockRules(ctx context.Context, rc *ruleConverter, repo *repos
 			rules[i].project_id = projectId
 			_, err := repo.insertRule(ctx, rules[i])
 			if err != nil {
+				// a deadlock has already rolled back the whole batch transaction:
+				// report it so the batch is retried instead of carrying on
+				if isLockConflict(err) {
+					return fmt.Errorf("failed to insert rule: %w", err)
+				}
 				continue
 			}
 		}

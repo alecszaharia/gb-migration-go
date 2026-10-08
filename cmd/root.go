@@ -33,6 +33,6 @@ func Execute(ctx context.Context) {
 func init() {
 	rootCmd.AddGroup(&cobra.Group{ID: "migrations", Title: "Migrations Commands"})
 	gb_migrations := global_blocks.NewCommand("migrations")
-	gb_migrations.SilenceErrors = true
+	gb_migrations.SilenceErrors = false
 	rootCmd.AddCommand(gb_migrations)
 }
